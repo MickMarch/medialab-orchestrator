@@ -1,34 +1,37 @@
 ---
 name: build-state
-description: orchestrator MVP build progress - job store done, worker/endpoints/webhook/rename remaining
+description: orchestrator MVP shipped v0.1.0; only the medialab-bot gateway rewrite remains under roadmap item 6
 metadata:
   type: project
 ---
 
-MVP build on branch `feat/orchestrator-mvp` (root repo), started 2026-06-26.
+**MVP COMPLETE - released v0.1.0 (2026-06-26).** Public repo
+(github.com/MickMarch/medialab-orchestrator), branch-protected on the `quality`
+CI check (matching the other services), submodule pinned in the root. CI green
+on main (ruff, format-check, mypy, pytest, pip-audit). Root PR #3 landed the
+submodule pin + compose + README + roadmap mark.
 
-**Done:** scaffold with full engineering standards from commit one (ruff, mypy,
-contracts v0.2.0 git-pin); `core/config.py` (AppConfig - gateway key, two
-downstream URL+keys, `MEDIA_MOUNT_PATH`, `DB_PATH`, all import-optional);
-`core/errors.py` (`ErrorCode` = `CommonErrorCode` superset + `JOB_NOT_FOUND`,
-`DOWNSTREAM_UNAVAILABLE`, `SEASON_UNPARSEABLE`); the SQLite job store
-(`store/jobs.py`: `JobStatus` 9-state enum, `PipelineJob` model, `JobStore`
-create/get/list/update + lowercase-hash + update whitelist + persistence) with
-16 passing tests over an in-memory DB fixture. ruff + mypy green.
+**Shipped:** full engineering standards from commit one; `core/` (config, errors,
+auth, limiter, middleware, logger, deps/AppContext + lifespan); the SQLite job
+store (`store/jobs.py`); async downstream clients (`clients/` - base with
+`DOWNSTREAM_UNAVAILABLE` mapping + reachability probe, torrent-downloader,
+jellyfin); the forward-retry asyncio worker (`services/worker.py`); the
+TV-rename service (`services/rename.py`, PTN season-only); the gateway routers
+(search proxies, `POST /download`, `GET /transfers` read-through merge,
+`GET/POST /jobs*`, `GET /storage`, public aggregated health); the keyed
+`POST /webhooks/torrent-complete` + `scripts/notify_complete.py` relay;
+Dockerfile; 48 tests green. Consumes `medialab-contracts` v0.2.0.
 
-**Remaining MVP:** asyncio worker (FastAPI lifespan, advances jobs one step,
-idempotent steps, forward-retry); downstream `httpx` clients (torrent-downloader,
-medialab-jellyfin) mocked at boundary in tests; bot-facing routers (search
-proxies, `POST /download`, `GET /transfers` merge, `GET/POST /jobs*`,
-`GET /storage`, health); `POST /webhooks/torrent-complete` + `scripts/
-notify_complete.py` relay; TV-folder rename (`Series (Year)/Season NN/`, PTN
-season-only); auth/limiter/middleware/logger cores mirrored from
-torrent-downloader; CI workflow, pre-commit, CHANGELOG, dependabot.
+**Still outstanding under roadmap item 6 (the only remaining piece):** the
+**medialab-bot rewrite onto the gateway** - point every bot call at the
+orchestrator, drop torrent-downloader + jellyfin URLs/keys, save-path config,
+and the direct health check. The gateway it targets now exists. That work lives
+in the medialab-bot repo, not here.
 
-**Repo is local-only** - not yet pushed to GitHub. Needs a PUBLIC GitHub repo
-(the contracts git-ref dep must resolve unauthenticated in CI/Docker). Submodule
-wiring into the root + root `docker-compose.yml` + spec-move into this CLAUDE.md
-+ roadmap mark are pending. See [[impl-decisions]], [[source-of-truth]].
+**Known follow-ups (not blocking):** the stale `_version.py` regenerates from
+the v0.1.0 tag on next build; verify the stack against live services before
+relying on it (the v0.1.0 tag was cut from green CI, not a live run).
 
-**How to apply:** Update or delete this memory as the MVP lands; it tracks
-transient progress, not durable design.
+**How to apply:** This service is done - design lives in `CLAUDE.md`. See
+[[impl-decisions]], [[source-of-truth]]. Next orchestrator-adjacent work is in
+medialab-bot.
