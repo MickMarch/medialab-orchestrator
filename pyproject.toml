@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "medialab-orchestrator"
+dynamic = ["version"]
+description = "Front-door orchestrating gateway driving the medialab media lifecycle via a SQLite job state machine."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.136.1",
+    "httpx>=0.28.0",
+    "medialab-contracts",
+    "parse-torrent-title>=2.8.2",
+    "pydantic-settings>=2.14.2",
+    "slowapi>=0.1.9",
+    "uvicorn>=0.46.0",
+]
+
+[project.scripts]
+medialab-orchestrator = "medialab_orchestrator.main:main"
+medialab-orchestrator-dev = "medialab_orchestrator.main:dev"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/medialab_orchestrator/_version.py"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13.0",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.0.0",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.8.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "PLR2004"]
+# UP042: keep `(str, Enum)` consistent with the other services and the
+# medialab-contracts shared enums rather than switching to StrEnum.
+ignore = ["UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004"]
+# B008: FastAPI's dependency-injection idiom is `param = Depends(...)` in the
+# signature default. Not a bugbear here - it is how the framework wires deps.
+"src/medialab_orchestrator/routers/**" = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "integration: requires real secrets or a live external service; skipped in CI",
+]
+
+[tool.uv.sources]
+medialab-contracts = { git = "https://github.com/MickMarch/medialab-contracts", rev = "v0.2.0" }

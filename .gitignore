@@ -1,0 +1,15 @@
+# hatch-vcs generated
+src/medialab_orchestrator/_version.py
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Runtime data + secrets
+data/
+.env

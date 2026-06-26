@@ -1,0 +1,73 @@
+"""Gateway HTTP tests: download creates a job, jobs/transfers/storage, auth."""
+
+from unittest.mock import AsyncMock
+
+from medialab_contracts import MediaType
+
+from medialab_orchestrator.store import JobStatus, JobStore
+
+HASH = "abcdef0123456789abcdef0123456789abcdef01"
+MAGNET = f"magnet:?xt=urn:btih:{HASH}&dn=Foo"
+
+
+class TestDownload:
+    def test_creates_job_and_forwards(self, app_client, store: JobStore, torrent_client: AsyncMock):
+        resp = app_client.post(
+            "/api/v1/download",
+            json={"magnet_uri": MAGNET, "media_type": "movie", "tmdb_id": 99},
+        )
+        assert resp.status_code == 202
+        body = resp.json()
+        assert body["job"]["torrent_hash"] == HASH
+        assert body["job"]["status"] == JobStatus.DOWNLOAD_SUBMITTED.value
+        # Job persisted and downstream called.
+        assert store.get_job_by_hash(HASH).tmdb_id == 99
+        torrent_client.download.assert_awaited_once()
+
+    def test_magnet_without_hash_rejected(self, app_client):
+        resp = app_client.post(
+            "/api/v1/download",
+            json={"magnet_uri": "magnet:?dn=NoHash", "media_type": "movie", "tmdb_id": 1},
+        )
+        assert resp.status_code == 422
+        assert resp.json()["code"] == "INVALID_INPUT"
+
+
+class TestJobs:
+    def test_list_and_filter(self, app_client, store: JobStore):
+        store.create_job(torrent_hash=HASH, release_name="r", media_type=MediaType.MOVIE, tmdb_id=1)
+        store.update_job(HASH, status=JobStatus.DONE)
+        assert len(app_client.get("/api/v1/jobs").json()["jobs"]) == 1
+        assert len(app_client.get("/api/v1/jobs?status=DONE").json()["jobs"]) == 1
+        assert len(app_client.get("/api/v1/jobs?status=FAILED").json()["jobs"]) == 0
+
+    def test_get_single(self, app_client, store: JobStore):
+        store.create_job(torrent_hash=HASH, release_name="r", media_type=MediaType.MOVIE, tmdb_id=1)
+        resp = app_client.get(f"/api/v1/jobs/{HASH}")
+        assert resp.status_code == 200
+        assert resp.json()["torrent_hash"] == HASH
+
+    def test_get_missing_404(self, app_client):
+        resp = app_client.get("/api/v1/jobs/deadbeef")
+        assert resp.status_code == 404
+        assert resp.json()["code"] == "JOB_NOT_FOUND"
+
+
+class TestTransfersAndStorage:
+    def test_transfers_merges(self, app_client, store: JobStore, torrent_client: AsyncMock):
+        torrent_client.transfers.return_value = {"data": []}
+        store.create_job(torrent_hash=HASH, release_name="r", media_type=MediaType.MOVIE, tmdb_id=1)
+        body = app_client.get("/api/v1/transfers").json()
+        assert "transfers" in body
+        assert len(body["jobs"]) == 1
+
+    def test_storage_proxied(self, app_client, torrent_client: AsyncMock):
+        torrent_client.storage.return_value = {"free": 1}
+        assert app_client.get("/api/v1/storage").json() == {"free": 1}
+
+
+class TestAuth:
+    def test_missing_key_rejected(self, unauthed_client):
+        resp = unauthed_client.get("/api/v1/jobs")
+        assert resp.status_code == 403
+        assert resp.json()["code"] == "UNAUTHORIZED"

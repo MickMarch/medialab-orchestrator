@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # hatch-vcs derives the version from tags; needs full history.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Mypy
+        run: uv run mypy src
+
+      - name: Tests
+        run: uv run pytest
+
+      - name: Dependency audit
+        # Audit the resolved project dependencies, not the isolated tool env.
+        run: |
+          uv export --no-emit-project --no-emit-package medialab-contracts \
+            --format requirements-txt > requirements.audit.txt
+          # Drop VCS/local source lines pip-audit cannot hash; only third-party
+          # PyPI deps need a CVE audit (medialab-contracts is audited in its own CI).
+          grep -vE '@ git\+|^-e ' requirements.audit.txt > requirements.audit.pypi.txt
+          uvx pip-audit -r requirements.audit.pypi.txt
