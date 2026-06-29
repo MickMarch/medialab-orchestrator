@@ -42,7 +42,12 @@ def _wire_downstream(
         "host_path": f"/media/{host_subdir}",
         "tmdb_id": 42,
     }
-    torrent_client.tmdb_detail.return_value = {"name": "Show Name", "first_air_date": "2019-03-01"}
+    # torrent-downloader wraps the raw TMDB body under `data`.
+    torrent_client.tmdb_detail.return_value = {
+        "status": "success",
+        "message": "",
+        "data": {"name": "Show Name", "first_air_date": "2019-03-01"},
+    }
 
 
 class TestHappyPath:

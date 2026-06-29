@@ -6,6 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `POST /download` now resolves the canonical `Title (Year)` from TMDB at submit
+  time (the `tmdb_id` is already known), storing `resolved_title`/`resolved_year`
+  on the job immediately so `GET /jobs` shows the title from the moment of
+  download instead of only the hash. Best-effort: a metadata-lookup failure is
+  logged and the download still proceeds (RESOLVE_META backfills later).
+- Title/year extraction moved to a shared `services/metadata.py`
+  (`extract_title_year` / `resolve_title_year`), used by both the submit path
+  and the worker's RESOLVE_META step.
+
+### Fixed
+
+- Title/year extraction read the TMDB fields off the wrong dict level: the
+  torrent-downloader detail response wraps the body under `data`, but the worker
+  read the top level, so `resolved_title` would have come back empty even after
+  the post-download pipeline ran. The shared helper now unwraps `data` and
+  degrades to `("", 0)` on a missing/short body.
+
 ### Added
 
 - Front-door orchestrating gateway scaffold with full engineering standards
