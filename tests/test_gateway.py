@@ -24,6 +24,38 @@ class TestDownload:
         assert store.get_job_by_hash(HASH).tmdb_id == 99
         torrent_client.download.assert_awaited_once()
 
+    def test_resolves_title_at_submit(self, app_client, store: JobStore, torrent_client: AsyncMock):
+        # tmdb_id is known at submit, so the gateway resolves Title (Year) now -
+        # /jobs shows it immediately instead of just the hash.
+        torrent_client.tmdb_detail.return_value = {
+            "status": "success",
+            "data": {"title": "Dune", "release_date": "2021-10-22"},
+        }
+        resp = app_client.post(
+            "/api/v1/download",
+            json={"magnet_uri": MAGNET, "media_type": "movie", "tmdb_id": 438631},
+        )
+        assert resp.status_code == 202
+        assert resp.json()["job"]["resolved_title"] == "Dune"
+        assert store.get_job_by_hash(HASH).resolved_year == 2021
+
+    def test_download_proceeds_when_title_resolve_fails(
+        self, app_client, store: JobStore, torrent_client: AsyncMock
+    ):
+        # A metadata hiccup must not block the actual download.
+        from medialab_orchestrator.core.errors import AppException, ErrorCode
+
+        torrent_client.tmdb_detail.side_effect = AppException(
+            status_code=502, code=ErrorCode.DOWNSTREAM_UNAVAILABLE, detail="tmdb down"
+        )
+        resp = app_client.post(
+            "/api/v1/download",
+            json={"magnet_uri": MAGNET, "media_type": "movie", "tmdb_id": 1},
+        )
+        assert resp.status_code == 202
+        assert store.get_job_by_hash(HASH).resolved_title is None
+        torrent_client.download.assert_awaited_once()
+
     def test_magnet_without_hash_rejected(self, app_client):
         resp = app_client.post(
             "/api/v1/download",

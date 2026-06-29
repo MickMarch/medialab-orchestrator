@@ -8,6 +8,7 @@ from fastapi import status as fastapi_status
 from medialab_orchestrator.core.deps import AppContext, get_context
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.limiter import RATE_LIMIT_DEFAULT, limiter
+from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.schemas.errors import ErrorResponse
 from medialab_orchestrator.schemas.jobs import (
     DownloadRequest,
@@ -15,6 +16,7 @@ from medialab_orchestrator.schemas.jobs import (
     JobsResponse,
     JobView,
 )
+from medialab_orchestrator.services.metadata import resolve_title_year
 from medialab_orchestrator.store import JobNotFoundError, JobStatus
 
 router = APIRouter(tags=["Gateway"])
@@ -65,6 +67,16 @@ async def submit_download(
         media_type=payload.media_type,
         tmdb_id=payload.tmdb_id,
     )
+    # Resolve the canonical title now (the tmdb_id is known) so /jobs shows
+    # "Title (Year)" from submit, not just the hash. Best-effort: a metadata
+    # hiccup must not block the actual download, and RESOLVE_META backfills it.
+    try:
+        title, year = await resolve_title_year(ctx.torrent, payload.media_type, payload.tmdb_id)
+        if title:
+            job = ctx.store.update_job(torrent_hash, resolved_title=title, resolved_year=year)
+    except AppException as exc:
+        app_logger.warning("Title resolve at submit failed for %s: %s", torrent_hash, exc.detail)
+
     await ctx.torrent.download(
         magnet_uri=payload.magnet_uri,
         media_type=payload.media_type,

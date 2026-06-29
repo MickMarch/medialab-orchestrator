@@ -21,6 +21,7 @@ from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClien
 from medialab_orchestrator.core.config import config
 from medialab_orchestrator.core.errors import AppException
 from medialab_orchestrator.core.logger import app_logger
+from medialab_orchestrator.services.metadata import resolve_title_year
 from medialab_orchestrator.services.rename import apply_rename, plan_rename
 from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob
 
@@ -90,8 +91,7 @@ class PipelineWorker:
 
     async def _step_resolve_meta(self, job: PipelineJob) -> PipelineJob:
         info = await self._torrent.transfer_info(job.torrent_hash)
-        detail = await self._torrent.tmdb_detail(job.media_type, job.tmdb_id)
-        title, year = _extract_title_year(job.media_type, detail)
+        title, year = await resolve_title_year(self._torrent, job.media_type, job.tmdb_id)
         return self._store.update_job(
             job.torrent_hash,
             status=JobStatus.RENAME,
@@ -137,20 +137,3 @@ _STEPS = {
     JobStatus.REGISTER: PipelineWorker._step_register,
     JobStatus.SCAN: PipelineWorker._step_scan,
 }
-
-
-def _extract_title_year(media_type: MediaType, detail: dict) -> tuple[str, int]:
-    """Pull canonical title + year from a torrent-downloader TMDB detail body.
-
-    Movies expose ``title`` / ``release_date``; shows expose ``name`` /
-    ``first_air_date`` (TMDB's own field naming, preserved by torrent-downloader).
-    Year is the leading 4 digits of the date.
-    """
-    if media_type is MediaType.MOVIE:
-        title = detail.get("title") or detail.get("name") or ""
-        date = detail.get("release_date") or detail.get("first_air_date") or ""
-    else:
-        title = detail.get("name") or detail.get("title") or ""
-        date = detail.get("first_air_date") or detail.get("release_date") or ""
-    year = int(date[:4]) if date[:4].isdigit() else 0
-    return title, year
