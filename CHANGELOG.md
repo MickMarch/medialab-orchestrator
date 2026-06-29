@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-29
+
 ### Changed
 
 - `POST /download` now resolves the canonical `Title (Year)` from TMDB at submit
@@ -24,6 +26,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   read the top level, so `resolved_title` would have come back empty even after
   the post-download pipeline ran. The shared helper now unwraps `data` and
   degrades to `("", 0)` on a missing/short body.
+
+## [0.1.0] - 2026-06-26
 
 ### Added
 
