@@ -8,9 +8,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from fastapi import status as fastapi_status
-from medialab_contracts import MediaType
+from medialab_contracts import MediaType, TorrentSearchScope
+from pydantic import ValidationError
 
 from medialab_orchestrator.core.deps import AppContext, get_context
+from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.limiter import RATE_LIMIT_SEARCH, limiter
 from medialab_orchestrator.schemas.errors import ErrorResponse
 
@@ -59,6 +61,19 @@ async def search_tmdb_detail(
 )
 @limiter.limit(RATE_LIMIT_SEARCH)
 async def search_torrents(
-    request: Request, query: str, ctx: AppContext = Depends(get_context)
+    request: Request,
+    query: str,
+    media_type: MediaType,
+    season: int | None = None,
+    episode: int | None = None,
+    ctx: AppContext = Depends(get_context),
 ) -> Any:
-    return await ctx.torrent.search_torrents(query)
+    try:
+        scope = TorrentSearchScope(media_type=media_type, season=season, episode=episode)
+    except ValidationError as error:
+        raise AppException(
+            status_code=fastapi_status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code=ErrorCode.INVALID_INPUT,
+            detail="Invalid season/episode combination for the requested media type.",
+        ) from error
+    return await ctx.torrent.search_torrents(query, scope)

@@ -98,6 +98,61 @@ class TestTransfersAndStorage:
         assert app_client.get("/api/v1/storage").json() == {"free": 1}
 
 
+class TestSearchTorrentsProxy:
+    def test_requires_media_type(self, app_client, torrent_client: AsyncMock):
+        torrent_client.search_torrents.return_value = {"data": {}}
+        resp = app_client.get("/api/v1/search/torrents", params={"query": "the wire"})
+        assert resp.status_code == 422
+
+    def test_movie_search_forwards_scope(self, app_client, torrent_client: AsyncMock):
+        torrent_client.search_torrents.return_value = {"data": {}}
+        resp = app_client.get(
+            "/api/v1/search/torrents", params={"query": "dune", "media_type": "movie"}
+        )
+        assert resp.status_code == 200
+        scope = torrent_client.search_torrents.await_args.args[1]
+        assert scope.media_type is MediaType.MOVIE
+        assert scope.season is None
+        assert scope.episode is None
+
+    def test_show_season_search_forwards_scope(self, app_client, torrent_client: AsyncMock):
+        torrent_client.search_torrents.return_value = {"data": {}}
+        resp = app_client.get(
+            "/api/v1/search/torrents",
+            params={"query": "the wire", "media_type": "show", "season": 2},
+        )
+        assert resp.status_code == 200
+        scope = torrent_client.search_torrents.await_args.args[1]
+        assert scope.media_type is MediaType.SHOW
+        assert scope.season == 2
+        assert scope.episode is None
+
+    def test_show_episode_search_forwards_scope(self, app_client, torrent_client: AsyncMock):
+        torrent_client.search_torrents.return_value = {"data": {}}
+        resp = app_client.get(
+            "/api/v1/search/torrents",
+            params={"query": "the wire", "media_type": "show", "season": 2, "episode": 5},
+        )
+        assert resp.status_code == 200
+        scope = torrent_client.search_torrents.await_args.args[1]
+        assert scope.season == 2
+        assert scope.episode == 5
+
+    def test_movie_with_season_rejected(self, app_client, torrent_client: AsyncMock):
+        resp = app_client.get(
+            "/api/v1/search/torrents",
+            params={"query": "dune", "media_type": "movie", "season": 1},
+        )
+        assert resp.status_code == 422
+
+    def test_orphan_episode_rejected(self, app_client, torrent_client: AsyncMock):
+        resp = app_client.get(
+            "/api/v1/search/torrents",
+            params={"query": "show", "media_type": "show", "episode": 3},
+        )
+        assert resp.status_code == 422
+
+
 class TestAuth:
     def test_missing_key_rejected(self, unauthed_client):
         resp = unauthed_client.get("/api/v1/jobs")

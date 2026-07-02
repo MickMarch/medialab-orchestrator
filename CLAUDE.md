@@ -51,7 +51,7 @@ rate limiting, `X-Request-ID` request logging, health-check reachability.
 
 Deps unique here: stdlib `sqlite3` (job store), `PTN` / `parse-torrent-title`
 (season number ONLY - title/year come from TMDB), `httpx` (downstream fan-out),
-`medialab-contracts` (shared models, pinned `v0.2.0` as a uv git dependency).
+`medialab-contracts` (shared models, pinned `v0.3.0` as a uv git dependency).
 
 Full workspace engineering standards apply from commit one (root CLAUDE.md
 "Engineering standards"): ruff lint+format (`E,F,I,UP,B,SIM,PLR2004`, UP042
@@ -104,8 +104,10 @@ All under `/api/v1`, all require the gateway `X-API-Key` except `/health`.
 
 **Search (stateless proxies to torrent-downloader, no job created):**
 - `GET /search/tmdb`, `GET /search/tmdb/{movie|show}/{tmdb_id}`,
-  `GET /search/torrents`. Sole accepted exception to "every gateway endpoint
-  binds a job" - value is one bot-facing surface.
+  `GET /search/torrents` (`media_type` required; shows accept optional
+  `season`/`episode`, validated via `TorrentSearchScope` and proxied through).
+  Sole accepted exception to "every gateway endpoint binds a job" - value is one
+  bot-facing surface.
 
 **Download (creates a job):**
 - `POST /download` - body `{magnet_uri, media_type, tmdb_id}`. Inserts

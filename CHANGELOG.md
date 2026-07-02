@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `GET /search/torrents` now forwards TV season/episode targeting to
+  torrent-downloader. `media_type` is a required query param; shows accept
+  optional `season`/`episode`. The gateway validates the combination via
+  `TorrentSearchScope` (422 on movie+season or an orphan episode) before
+  proxying. Search-steering only - no job-table change.
+
+### Changed
+
+- `medialab-contracts` pin bumped to v0.3.0 (`TorrentSearchScope`).
+
 ## [0.2.0] - 2026-06-29
 
 ### Changed
