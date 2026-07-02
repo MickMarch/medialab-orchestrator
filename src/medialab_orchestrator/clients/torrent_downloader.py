@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from medialab_contracts import MediaType
+from medialab_contracts import MediaType, TorrentSearchScope
 
 from medialab_orchestrator.clients.base import DownstreamClient
 from medialab_orchestrator.core.config import config
@@ -28,8 +28,13 @@ class TorrentDownloaderClient(DownstreamClient):
     async def tmdb_detail(self, media_type: MediaType, tmdb_id: int) -> Any:
         return await self.get(f"{_PREFIX}/search/tmdb/{media_type.value}/{tmdb_id}")
 
-    async def search_torrents(self, query: str) -> Any:
-        return await self.get(f"{_PREFIX}/search/torrents", params={"query": query})
+    async def search_torrents(self, query: str, scope: TorrentSearchScope) -> Any:
+        params: dict[str, Any] = {"query": query, "media_type": scope.media_type.value}
+        if scope.season is not None:
+            params["season"] = scope.season
+        if scope.episode is not None:
+            params["episode"] = scope.episode
+        return await self.get(f"{_PREFIX}/search/torrents", params=params)
 
     async def download(self, *, magnet_uri: str, media_type: MediaType, tmdb_id: int) -> Any:
         return await self.post(
