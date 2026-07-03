@@ -9,7 +9,7 @@ description = "Front-door orchestrating gateway driving the medialab media lifec
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.136.1",
+    "fastapi>=0.139.0",
     "httpx>=0.28.0",
     "medialab-contracts",
     "parse-torrent-title>=2.8.2",
