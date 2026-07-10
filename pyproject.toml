@@ -30,7 +30,7 @@ version-file = "src/medialab_orchestrator/_version.py"
 
 [dependency-groups]
 dev = [
-    "mypy>=1.13.0",
+    "mypy>=2.2.0",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.0.0",
     "pytest-mock>=3.15.1",
