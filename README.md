@@ -41,6 +41,50 @@ service needs real downstream URLs/keys at runtime.
 `scripts/notify_complete.py` reads its own minimal env (`ORCHESTRATOR_URL` plus
 key) - it runs as a qBittorrent child process, outside this container.
 
+## Wiring the qBittorrent completion hook
+
+The post-download pipeline (stop-seed -> rename -> register -> Jellyfin scan)
+only runs when qBittorrent tells the orchestrator a torrent finished. Without
+this, jobs sit at `DOWNLOAD_SUBMITTED` forever.
+
+`scripts/notify_complete.py` is the relay. It is **standalone and stdlib-only**
+(no third-party or package imports), so it runs anywhere Python is present - the
+host next to qBittorrent today, or inside the qBittorrent container after the
+containerization work (backlog item 20). Migration is just re-pointing the one
+qBittorrent setting at the in-container path; no code changes.
+
+Setup (host qBittorrent):
+
+1. Copy `src/medialab_orchestrator/scripts/notify_complete.py` anywhere on the
+   host (e.g. `C:\medialab\notify_complete.py`).
+2. Give the relay its env. qBittorrent's completion command inherits the
+   environment of the qBittorrent process, so set these as **user/system
+   environment variables** (or wrap the call in a `.bat` that exports them):
+   - `ORCHESTRATOR_URL=http://localhost:8000` (the published gateway port)
+   - `ORCHESTRATOR_API_KEY=<the gateway API_KEY>`
+3. qBittorrent -> Tools -> Options -> Downloads -> "Run external program on
+   torrent completion", set:
+   ```
+   python "C:\medialab\notify_complete.py" "%I" "%N"
+   ```
+   (`%I` = info-hash, `%N` = torrent name). Use the full path to `python` if it
+   is not on qBittorrent's PATH.
+
+The relay POSTs `{hash, name}` to `/api/v1/webhooks/torrent-complete` with the
+`X-API-Key`; the gateway matches the job by hash (or orphan-inserts) and advances
+it off the request thread, returning `202` immediately so qBittorrent is never
+blocked. Verify with `GET /api/v1/jobs` - a completed torrent's job should leave
+`DOWNLOAD_SUBMITTED` and progress toward `DONE`.
+
+### Windows write-lock note
+
+If a download errors with `Couldn't write to file. Reason: 'Access is denied'`
+and flips to upload-only, that is a transient file lock (typically Windows
+Defender real-time scanning the file mid-write), not a medialab bug. Add a
+Defender exclusion for the media directory (e.g. `F:\Media`) and `qBittorrent.exe`
+(Windows Security -> Virus & threat protection -> Manage settings -> Exclusions).
+Auto-recovery of errored torrents is backlog item 10.
+
 ## Versioning
 
 Version derives from git tags via `hatch-vcs` - never hardcoded.
