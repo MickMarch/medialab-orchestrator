@@ -88,10 +88,16 @@ DONE
 FAILED               any step error; last_error stored; retryable from last good state
 ```
 
-Columns: `id`, `torrent_hash` (unique, stored lowercase), `release_name`,
+Columns: `id` (surrogate uuid PK), `torrent_hash` (nullable, unique when
+present, stored lowercase - backfilled once qBittorrent knows it), `seq`
+(autoincrement rowid for stable newest-first ordering), `release_name`,
 `media_type`, `tmdb_id`, `resolved_title`, `resolved_year`, `source_path`,
 `dest_path`, `status`, `last_error`, `attempts`, `created_at`, `updated_at`.
-Job is born at download submit, never at search (no draft jobs).
+Job is born at download submit, never at search (no draft jobs). The hash is
+not known up front for a `.torrent`-URL source, so identity is the surrogate
+`id`; the hash is stamped from the downloader's `POST /download` response
+(`torrent_hash`) or backfilled by the completion webhook (`%I`). `update_job`
+keys by `id`; the webhook resolves by hash then updates by the found job's id.
 
 ### Idempotency (required for safe retry)
 STOP_SEEDING: stopping an already-stopped torrent is a no-op. RESOLVE_META: pure
@@ -110,15 +116,18 @@ All under `/api/v1`, all require the gateway `X-API-Key` except `/health`.
   bot-facing surface.
 
 **Download (creates a job):**
-- `POST /download` - body `{magnet_uri, media_type, tmdb_id}`. Inserts
-  `pipeline_job(status=DOWNLOAD_SUBMITTED)`, forwards to torrent-downloader
-  `POST /download` (which caches `{media_type, host_path, tmdb_id}` vs hash),
-  returns job id/hash.
+- `POST /download` - body `{source_url, media_type, tmdb_id}` (`source_url` is a
+  magnet or an http `.torrent` URL). Inserts
+  `pipeline_job(status=DOWNLOAD_SUBMITTED)` keyed by a surrogate uuid, forwards
+  to torrent-downloader `POST /download` (which caches
+  `{media_type, host_path, tmdb_id}` vs hash and returns the resolved
+  `torrent_hash`), stamps that hash onto the job, returns the job.
 
 **Status / observability:**
 - `GET /transfers` - merges torrent-downloader live `/transfers` with job rows.
-- `GET /jobs` (filter by `status`), `GET /jobs/{hash}`,
-  `POST /jobs/{hash}/retry` (re-enter worker from last good state).
+- `GET /jobs` (filter by `status`), `GET /jobs/{id}`,
+  `POST /jobs/{id}/retry` (re-enter worker from last good state; 409 if the job
+  has no stamped hash yet).
 - `GET /storage` - forwards to torrent-downloader.
 
 **Webhook (post-download entry):**

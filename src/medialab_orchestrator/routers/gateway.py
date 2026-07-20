@@ -21,32 +21,13 @@ from medialab_orchestrator.store import JobNotFoundError, JobStatus
 
 router = APIRouter(tags=["Gateway"])
 
-_MAGNET_HASH_BTIH = "btih:"
-_HASH_LENGTH = 40
+_RESPONSE_HASH_KEY = "torrent_hash"
 
 _COMMON_ERRORS: dict[int | str, dict[str, Any]] = {
     403: {"model": ErrorResponse, "description": "Missing or invalid API key."},
     429: {"model": ErrorResponse, "description": "Rate limit exceeded."},
     502: {"model": ErrorResponse, "description": "Downstream worker unavailable."},
 }
-
-
-def _extract_hash(magnet_uri: str) -> str:
-    """Pull the 40-char btih info-hash from a magnet URI, lowercased.
-
-    The bot submits a magnet; the job is keyed by hash so the completion webhook
-    (which only has the hash) can find it. Mirrors torrent-downloader's own
-    extraction.
-    """
-    marker = magnet_uri.lower().find(_MAGNET_HASH_BTIH)
-    if marker == -1:
-        raise AppException(
-            status_code=fastapi_status.HTTP_422_UNPROCESSABLE_ENTITY,
-            code=ErrorCode.INVALID_INPUT,
-            detail="magnet_uri has no btih info-hash.",
-        )
-    start = marker + len(_MAGNET_HASH_BTIH)
-    return magnet_uri[start : start + _HASH_LENGTH].lower()
 
 
 @router.post(
@@ -60,28 +41,36 @@ def _extract_hash(magnet_uri: str) -> str:
 async def submit_download(
     request: Request, payload: DownloadRequest, ctx: AppContext = Depends(get_context)
 ) -> DownloadResponse:
-    torrent_hash = _extract_hash(payload.magnet_uri)
+    # The job is born keyed by a surrogate id; the real info-hash is not known
+    # up front for a .torrent-URL source, so it is stamped from the downloader's
+    # response below (or backfilled by the completion webhook).
     job = ctx.store.create_job(
-        torrent_hash=torrent_hash,
         release_name="",  # filled from the completion webhook's %N
         media_type=payload.media_type,
         tmdb_id=payload.tmdb_id,
     )
     # Resolve the canonical title now (the tmdb_id is known) so /jobs shows
-    # "Title (Year)" from submit, not just the hash. Best-effort: a metadata
-    # hiccup must not block the actual download, and RESOLVE_META backfills it.
+    # "Title (Year)" from submit. Best-effort: a metadata hiccup must not block
+    # the actual download, and RESOLVE_META backfills it.
     try:
         title, year = await resolve_title_year(ctx.torrent, payload.media_type, payload.tmdb_id)
         if title:
-            job = ctx.store.update_job(torrent_hash, resolved_title=title, resolved_year=year)
+            job = ctx.store.update_job(job.id, resolved_title=title, resolved_year=year)
     except AppException as exc:
-        app_logger.warning("Title resolve at submit failed for %s: %s", torrent_hash, exc.detail)
+        app_logger.warning("Title resolve at submit failed for %s: %s", job.id, exc.detail)
 
-    await ctx.torrent.download(
-        magnet_uri=payload.magnet_uri,
+    result = await ctx.torrent.download(
+        source_url=payload.source_url,
         media_type=payload.media_type,
         tmdb_id=payload.tmdb_id,
     )
+    # The downloader resolves the hash (parsed from a magnet, or read back from
+    # qBittorrent for a .torrent URL) and returns it. Stamp it so the completion
+    # webhook can match this job; if it is missing the webhook backfills it.
+    torrent_hash = result.get(_RESPONSE_HASH_KEY) if isinstance(result, dict) else None
+    if torrent_hash:
+        job = ctx.store.stamp_hash(job.id, torrent_hash)
+
     return DownloadResponse(job=JobView.from_job(job))
 
 
@@ -99,8 +88,8 @@ async def list_transfers(request: Request, ctx: AppContext = Depends(get_context
     the pipeline.
     """
     live = await ctx.torrent.transfers()
-    jobs = {job.torrent_hash: JobView.from_job(job) for job in ctx.store.list_jobs()}
-    return {"status": "success", "transfers": live, "jobs": list(jobs.values())}
+    jobs = [JobView.from_job(job) for job in ctx.store.list_jobs()]
+    return {"status": "success", "transfers": live, "jobs": jobs}
 
 
 @router.get(
@@ -121,29 +110,27 @@ async def list_jobs(
 
 
 @router.get(
-    "/jobs/{torrent_hash}",
+    "/jobs/{job_id}",
     response_model=JobView,
     status_code=fastapi_status.HTTP_200_OK,
     summary="Single job detail including last_error and attempts.",
     responses={**_COMMON_ERRORS, 404: {"model": ErrorResponse, "description": "No such job."}},
 )
 @limiter.limit(RATE_LIMIT_DEFAULT)
-async def get_job(
-    request: Request, torrent_hash: str, ctx: AppContext = Depends(get_context)
-) -> JobView:
+async def get_job(request: Request, job_id: str, ctx: AppContext = Depends(get_context)) -> JobView:
     try:
-        job = ctx.store.get_job_by_hash(torrent_hash)
+        job = ctx.store.get_job_by_id(job_id)
     except JobNotFoundError as exc:
         raise AppException(
             status_code=fastapi_status.HTTP_404_NOT_FOUND,
             code=ErrorCode.JOB_NOT_FOUND,
-            detail=f"No job for hash {torrent_hash}.",
+            detail=f"No job {job_id}.",
         ) from exc
     return JobView.from_job(job)
 
 
 @router.post(
-    "/jobs/{torrent_hash}/retry",
+    "/jobs/{job_id}/retry",
     response_model=JobView,
     status_code=fastapi_status.HTTP_200_OK,
     summary="Re-enter the worker from the last good state.",
@@ -151,17 +138,26 @@ async def get_job(
 )
 @limiter.limit(RATE_LIMIT_DEFAULT)
 async def retry_job(
-    request: Request, torrent_hash: str, ctx: AppContext = Depends(get_context)
+    request: Request, job_id: str, ctx: AppContext = Depends(get_context)
 ) -> JobView:
     try:
-        ctx.store.get_job_by_hash(torrent_hash)
+        existing = ctx.store.get_job_by_id(job_id)
     except JobNotFoundError as exc:
         raise AppException(
             status_code=fastapi_status.HTTP_404_NOT_FOUND,
             code=ErrorCode.JOB_NOT_FOUND,
-            detail=f"No job for hash {torrent_hash}.",
+            detail=f"No job {job_id}.",
         ) from exc
-    job = await ctx.worker.process(torrent_hash)
+    if existing.torrent_hash is None:
+        # The pipeline needs the info-hash (transfer_info, stop-seeding). A job
+        # whose hash never got stamped cannot be advanced; the completion webhook
+        # is what stamps + drives it.
+        raise AppException(
+            status_code=fastapi_status.HTTP_409_CONFLICT,
+            code=ErrorCode.INVALID_INPUT,
+            detail=f"Job {job_id} has no torrent hash yet; cannot retry.",
+        )
+    job = await ctx.worker.process(existing.torrent_hash)
     return JobView.from_job(job)
 
 

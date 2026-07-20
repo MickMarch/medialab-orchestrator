@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -39,10 +40,16 @@ class JobStatus(str, Enum):
 
 
 class PipelineJob(BaseModel):
-    """A single job row. Mirrors the ``pipeline_job`` table columns."""
+    """A single job row. Mirrors the ``pipeline_job`` table columns.
 
-    id: int
-    torrent_hash: str
+    ``id`` is a surrogate uuid assigned at creation; ``torrent_hash`` is the
+    real BTIH info-hash, which is not known up front for a ``.torrent``-URL
+    download and so is nullable until stamped (by the download readback or the
+    completion webhook).
+    """
+
+    id: str
+    torrent_hash: str | None = None
     release_name: str
     media_type: MediaType
     tmdb_id: int
@@ -57,10 +64,13 @@ class PipelineJob(BaseModel):
     updated_at: str
 
 
+# The row order is preserved by a monotonic rowid so "newest first" listing is
+# stable even though the primary key is now an unordered uuid.
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS pipeline_job (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    torrent_hash   TEXT    NOT NULL UNIQUE,
+    seq            INTEGER PRIMARY KEY AUTOINCREMENT,
+    id             TEXT    NOT NULL UNIQUE,
+    torrent_hash   TEXT    UNIQUE,
     release_name   TEXT    NOT NULL,
     media_type     TEXT    NOT NULL,
     tmdb_id        INTEGER NOT NULL,
@@ -106,7 +116,12 @@ def _normalise_hash(torrent_hash: str) -> str:
 
 
 class JobNotFoundError(Exception):
-    """Raised when a lookup or update targets a hash with no job row."""
+    """Raised when a lookup or update targets an id/hash with no job row."""
+
+
+def _new_id() -> str:
+    """A fresh surrogate job id (uuid4 hex, url-safe and compact)."""
+    return uuid.uuid4().hex
 
 
 class JobStore:
@@ -155,24 +170,31 @@ class JobStore:
     def create_job(
         self,
         *,
-        torrent_hash: str,
         release_name: str,
         media_type: MediaType,
         tmdb_id: int,
+        torrent_hash: str | None = None,
         status: JobStatus = JobStatus.DOWNLOAD_SUBMITTED,
     ) -> PipelineJob:
-        """Insert a new job at ``status`` (default ``DOWNLOAD_SUBMITTED``)."""
+        """Insert a new job at ``status`` (default ``DOWNLOAD_SUBMITTED``).
+
+        A surrogate ``id`` is assigned here. ``torrent_hash`` is optional: it is
+        omitted for a ``.torrent``-URL download whose hash is not yet known and
+        stamped later via ``stamp_hash``.
+        """
         now = _now()
+        job_id = _new_id()
         with self._cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO pipeline_job
-                    (torrent_hash, release_name, media_type, tmdb_id,
+                    (id, torrent_hash, release_name, media_type, tmdb_id,
                      status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    _normalise_hash(torrent_hash),
+                    job_id,
+                    _normalise_hash(torrent_hash) if torrent_hash is not None else None,
                     release_name,
                     media_type.value,
                     tmdb_id,
@@ -181,12 +203,20 @@ class JobStore:
                     now,
                 ),
             )
-            job_id = cur.lastrowid
-        if job_id is None:  # pragma: no cover - INSERT always sets lastrowid
-            raise RuntimeError("INSERT did not return a row id")
         return self.get_job_by_id(job_id)
 
-    def get_job_by_id(self, job_id: int) -> PipelineJob:
+    def stamp_hash(self, job_id: str, torrent_hash: str) -> PipelineJob:
+        """Backfill the real info-hash onto a job once qBittorrent knows it."""
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE pipeline_job SET torrent_hash = ?, updated_at = ? WHERE id = ?",
+                (_normalise_hash(torrent_hash), _now(), job_id),
+            )
+            if cur.rowcount == 0:
+                raise JobNotFoundError(f"No job with id {job_id}")
+        return self.get_job_by_id(job_id)
+
+    def get_job_by_id(self, job_id: str) -> PipelineJob:
         with self._cursor() as cur:
             row = cur.execute("SELECT * FROM pipeline_job WHERE id = ?", (job_id,)).fetchone()
         if row is None:
@@ -210,34 +240,35 @@ class JobStore:
         if status is not None:
             query += " WHERE status = ?"
             params = (status.value,)
-        query += " ORDER BY id DESC"
+        query += " ORDER BY seq DESC"
         with self._cursor() as cur:
             rows = cur.execute(query, params).fetchall()
         return [_row_to_job(row) for row in rows]
 
-    def update_job(self, torrent_hash: str, **fields: object) -> PipelineJob:
-        """Patch the named columns on a job, bumping ``updated_at``.
+    def update_job(self, job_id: str, **fields: object) -> PipelineJob:
+        """Patch the named columns on a job (keyed by id), bumping ``updated_at``.
 
         Enum values are accepted and unwrapped. Unknown or immutable columns
-        raise ``ValueError`` so a typo cannot silently no-op.
+        raise ``ValueError`` so a typo cannot silently no-op. The hash is stamped
+        via ``stamp_hash``, not here.
         """
         unknown = set(fields) - _UPDATABLE_COLUMNS
         if unknown:
             raise ValueError(f"Cannot update columns: {sorted(unknown)}")
         if not fields:
-            return self.get_job_by_hash(torrent_hash)
+            return self.get_job_by_id(job_id)
 
         normalised = {k: _unwrap(v) for k, v in fields.items()}
         assignments = ", ".join(f"{col} = ?" for col in normalised)
-        params = [*normalised.values(), _now(), _normalise_hash(torrent_hash)]
+        params = [*normalised.values(), _now(), job_id]
         with self._cursor() as cur:
             cur.execute(
-                f"UPDATE pipeline_job SET {assignments}, updated_at = ? WHERE torrent_hash = ?",
+                f"UPDATE pipeline_job SET {assignments}, updated_at = ? WHERE id = ?",
                 params,
             )
             if cur.rowcount == 0:
-                raise JobNotFoundError(f"No job with hash {torrent_hash}")
-        return self.get_job_by_hash(torrent_hash)
+                raise JobNotFoundError(f"No job with id {job_id}")
+        return self.get_job_by_id(job_id)
 
 
 def _unwrap(value: object) -> object:
