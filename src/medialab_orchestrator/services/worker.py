@@ -119,11 +119,7 @@ class PipelineWorker:
             year=job.resolved_year or 0,
         )
         await asyncio.to_thread(apply_rename, source, dest)
-        return self._store.update_job(job.id, status=JobStatus.REGISTER, dest_path=str(dest))
-
-    async def _step_register(self, job: PipelineJob) -> PipelineJob:
-        await self._jellyfin.register_path(media_type=job.media_type, path=job.dest_path or "")
-        return self._store.update_job(job.id, status=JobStatus.SCAN)
+        return self._store.update_job(job.id, status=JobStatus.SCAN, dest_path=str(dest))
 
     async def _step_scan(self, job: PipelineJob) -> PipelineJob:
         await self._jellyfin.scan(path=job.dest_path or "")
@@ -141,6 +137,5 @@ _STEPS = {
     JobStatus.STOP_SEEDING: PipelineWorker._step_stop_seeding,
     JobStatus.RESOLVE_META: PipelineWorker._step_resolve_meta,
     JobStatus.RENAME: PipelineWorker._step_rename,
-    JobStatus.REGISTER: PipelineWorker._step_register,
     JobStatus.SCAN: PipelineWorker._step_scan,
 }

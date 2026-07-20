@@ -82,8 +82,7 @@ RESOLVE_META         GET /transfers/{hash}/info (media_type, host_path, tmdb_id)
                      GET /search/tmdb/{type}/{tmdb_id} -> canonical title + year
 RENAME               TV: PTN(name)->season; move to host_path/Title (Year)/Season NN/
                      movie: no move, dest = host_path/<release_name>
-REGISTER             medialab-jellyfin POST /library/paths (idempotent)
-SCAN                 medialab-jellyfin POST /library/scan
+SCAN                 medialab-jellyfin POST /library/scan (Media/Updated)
 DONE
 FAILED               any step error; last_error stored; retryable from last good state
 ```
@@ -101,8 +100,17 @@ keys by `id`; the webhook resolves by hash then updates by the found job's id.
 
 ### Idempotency (required for safe retry)
 STOP_SEEDING: stopping an already-stopped torrent is a no-op. RESOLVE_META: pure
-reads. RENAME: skip the move if `dest_path` is populated and exists.
-REGISTER/SCAN: Jellyfin path-register and scan both safe to repeat.
+reads. RENAME: skip the move if `dest_path` is populated and exists. SCAN:
+Jellyfin `Media/Updated` is safe to repeat.
+
+**No per-download REGISTER step.** The Jellyfin library root (`F:\Media\Movies`,
+`F:\Media\Shows`) is registered ONCE at setup, not per download - Jellyfin
+recursively scans an already-registered root, and adding a sub-path of an
+existing root 404s. So the pipeline goes RENAME -> SCAN directly; SCAN notifies
+Jellyfin the new path changed. `JellyfinClient.register_path` /
+medialab-jellyfin `POST /library/paths` still exist for one-time setup use (the
+setup wizard, item 8), just not in the per-download pipeline. (Removed the
+REGISTER step + `JobStatus.REGISTER` after a live run 404'd on it, 2026-07-20.)
 
 ## Planned endpoints (the gateway surface)
 

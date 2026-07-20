@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Removed the per-download REGISTER pipeline step (and `JobStatus.REGISTER`).
+  The Jellyfin library root is registered once at setup, not per download;
+  adding a sub-path of an already-registered root makes Jellyfin return 404, so
+  every real download failed at REGISTER. The pipeline now goes RENAME -> SCAN
+  directly - Jellyfin recursively scans the already-covered path. Found by the
+  first real end-to-end run (a completed movie failed `REGISTER: medialab-jellyfin
+  returned 500/404`). `register_path` stays available for one-time setup use.
+
 ## [0.4.1] - 2026-07-20
 
 ### Changed
