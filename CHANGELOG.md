@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-20
+
 ### Changed
 
 - The qBittorrent completion relay (`scripts/notify_complete.py`) is now
