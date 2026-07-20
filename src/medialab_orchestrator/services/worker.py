@@ -15,11 +15,12 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from fastapi import status as fastapi_status
 from medialab_contracts import MediaType
 
 from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClient
 from medialab_orchestrator.core.config import config
-from medialab_orchestrator.core.errors import AppException
+from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.services.metadata import resolve_title_year
 from medialab_orchestrator.services.rename import apply_rename, plan_rename
@@ -65,7 +66,7 @@ class PipelineWorker:
                 "Job %s failed at %s: %s", job.torrent_hash, job.status.value, detail
             )
             return self._store.update_job(
-                job.torrent_hash,
+                job.id,
                 status=JobStatus.FAILED,
                 last_error=f"{job.status.value}: {detail}",
                 attempts=job.attempts + 1,
@@ -79,7 +80,7 @@ class PipelineWorker:
         retry restarts the pipeline from STOP_SEEDING (every step is idempotent,
         so re-running the early steps is safe).
         """
-        return self._store.update_job(job.torrent_hash, status=JobStatus.STOP_SEEDING)
+        return self._store.update_job(job.id, status=JobStatus.STOP_SEEDING)
 
     async def _run_step(self, job: PipelineJob) -> PipelineJob:
         step = _STEPS[job.status]
@@ -87,13 +88,21 @@ class PipelineWorker:
 
     async def _step_stop_seeding(self, job: PipelineJob) -> PipelineJob:
         await self._torrent.stop_seeding()
-        return self._store.update_job(job.torrent_hash, status=JobStatus.RESOLVE_META)
+        return self._store.update_job(job.id, status=JobStatus.RESOLVE_META)
 
     async def _step_resolve_meta(self, job: PipelineJob) -> PipelineJob:
+        # The pipeline only runs once the completion webhook (which carries the
+        # hash) has matched or stamped the job, so the hash is present here.
+        if job.torrent_hash is None:
+            raise AppException(
+                status_code=fastapi_status.HTTP_409_CONFLICT,
+                code=ErrorCode.INVALID_INPUT,
+                detail="Job reached RESOLVE_META without a torrent hash.",
+            )
         info = await self._torrent.transfer_info(job.torrent_hash)
         title, year = await resolve_title_year(self._torrent, job.media_type, job.tmdb_id)
         return self._store.update_job(
-            job.torrent_hash,
+            job.id,
             status=JobStatus.RENAME,
             source_path=info["host_path"],
             resolved_title=title,
@@ -110,17 +119,15 @@ class PipelineWorker:
             year=job.resolved_year or 0,
         )
         await asyncio.to_thread(apply_rename, source, dest)
-        return self._store.update_job(
-            job.torrent_hash, status=JobStatus.REGISTER, dest_path=str(dest)
-        )
+        return self._store.update_job(job.id, status=JobStatus.REGISTER, dest_path=str(dest))
 
     async def _step_register(self, job: PipelineJob) -> PipelineJob:
         await self._jellyfin.register_path(media_type=job.media_type, path=job.dest_path or "")
-        return self._store.update_job(job.torrent_hash, status=JobStatus.SCAN)
+        return self._store.update_job(job.id, status=JobStatus.SCAN)
 
     async def _step_scan(self, job: PipelineJob) -> PipelineJob:
         await self._jellyfin.scan(path=job.dest_path or "")
-        return self._store.update_job(job.torrent_hash, status=JobStatus.DONE)
+        return self._store.update_job(job.id, status=JobStatus.DONE)
 
 
 # In-container media-type subdir of the shared mount. Matches the dirs

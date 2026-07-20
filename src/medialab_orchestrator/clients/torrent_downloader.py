@@ -36,11 +36,11 @@ class TorrentDownloaderClient(DownstreamClient):
             params["episode"] = scope.episode
         return await self.get(f"{_PREFIX}/search/torrents", params=params)
 
-    async def download(self, *, magnet_uri: str, media_type: MediaType, tmdb_id: int) -> Any:
+    async def download(self, *, source_url: str, media_type: MediaType, tmdb_id: int) -> Any:
         return await self.post(
             f"{_PREFIX}/download",
             json={
-                "magnet_uri": magnet_uri,
+                "source_url": source_url,
                 "media_type": media_type.value,
                 "tmdb_id": tmdb_id,
             },

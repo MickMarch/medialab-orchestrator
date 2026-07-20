@@ -134,7 +134,7 @@ class TestRetry:
 
         # Operator fixes the folder name; retry re-enters from STOP_SEEDING.
         (tmp_path / "Shows" / TV_RELEASE).mkdir(parents=True)
-        store.update_job(HASH, release_name=TV_RELEASE)
+        store.update_job(store.get_job_by_hash(HASH).id, release_name=TV_RELEASE)
         recovered = await worker.process(HASH)
         assert recovered.status is JobStatus.DONE
         assert torrent_client.stop_seeding.await_count == 2  # re-ran the early step

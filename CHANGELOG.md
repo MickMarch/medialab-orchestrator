@@ -6,6 +6,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Jobs are now keyed by a surrogate `id` (uuid), not the torrent hash.** The
+  `pipeline_job` primary key is a generated uuid; `torrent_hash` becomes a
+  nullable, backfilled column. This decouples job identity from how the torrent
+  was sourced, so a `.torrent`-URL download (whose info-hash is not known up
+  front) creates a job the same way a magnet does. The hash is stamped from the
+  downloader's response (or by the completion webhook).
+- `POST /download` body field `magnet_uri` renamed to `source_url` (a magnet or
+  an http `.torrent` URL), forwarded to torrent-downloader. The gateway no
+  longer parses the hash itself - the downloader resolves it and returns
+  `torrent_hash`, which the gateway stamps onto the job.
+- `GET /jobs/{id}` and `POST /jobs/{id}/retry` are addressed by the surrogate
+  `job_id`, not the hash. The completion webhook still matches by hash
+  internally. Retry on a job with no stamped hash yet returns 409.
+- `JobView.id` is now a string (uuid); `JobView.torrent_hash` is nullable.
+
+### Migration
+
+- The `pipeline_job` schema changed (uuid PK, nullable hash). Pre-1.0 homelab
+  service: an existing `orchestrator.db` is not migrated - delete it and let the
+  service recreate the table. In-flight jobs (if any) are lost; re-submit.
+
 ## [0.3.0] - 2026-07-02
 
 ### Added

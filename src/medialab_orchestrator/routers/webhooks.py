@@ -45,8 +45,8 @@ async def torrent_complete(
     ctx: AppContext = Depends(get_context),
 ) -> dict[str, Any]:
     try:
-        ctx.store.get_job_by_hash(payload.hash)
-        ctx.store.update_job(payload.hash, release_name=payload.name)
+        job = ctx.store.get_job_by_hash(payload.hash)
+        ctx.store.update_job(job.id, release_name=payload.name)
     except JobNotFoundError:
         app_logger.warning("Completion for unknown hash %s; tracking as orphan job", payload.hash)
         ctx.store.create_job(

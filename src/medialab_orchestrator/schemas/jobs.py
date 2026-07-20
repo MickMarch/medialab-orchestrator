@@ -9,9 +9,13 @@ from medialab_orchestrator.store import JobStatus, PipelineJob
 
 
 class DownloadRequest(BaseModel):
-    """Body for ``POST /download``. Mirrors a bot download confirmation."""
+    """Body for ``POST /download``. Mirrors a bot download confirmation.
 
-    magnet_uri: str = Field(min_length=1)
+    ``source_url`` is a magnet URI or an http ``.torrent`` file URL - whatever
+    the picked search result carried.
+    """
+
+    source_url: str = Field(min_length=1)
     media_type: MediaType
     tmdb_id: int
 
@@ -19,8 +23,8 @@ class DownloadRequest(BaseModel):
 class JobView(BaseModel):
     """A pipeline job as exposed to the bot. Wraps the store's PipelineJob."""
 
-    id: int
-    torrent_hash: str
+    id: str
+    torrent_hash: str | None = None
     release_name: str
     media_type: MediaType
     tmdb_id: int

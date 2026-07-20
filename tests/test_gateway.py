@@ -8,32 +8,58 @@ from medialab_orchestrator.store import JobStatus, JobStore
 
 HASH = "abcdef0123456789abcdef0123456789abcdef01"
 MAGNET = f"magnet:?xt=urn:btih:{HASH}&dn=Foo"
+TORRENT_URL = "https://www.torlock.com/tor/1924049.torrent"
 
 
 class TestDownload:
     def test_creates_job_and_forwards(self, app_client, store: JobStore, torrent_client: AsyncMock):
+        # The downloader resolves and returns the hash; the gateway stamps it.
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": HASH}
         resp = app_client.post(
             "/api/v1/download",
-            json={"magnet_uri": MAGNET, "media_type": "movie", "tmdb_id": 99},
+            json={"source_url": MAGNET, "media_type": "movie", "tmdb_id": 99},
         )
         assert resp.status_code == 202
         body = resp.json()
         assert body["job"]["torrent_hash"] == HASH
         assert body["job"]["status"] == JobStatus.DOWNLOAD_SUBMITTED.value
+        assert isinstance(body["job"]["id"], str) and body["job"]["id"]
         # Job persisted and downstream called.
         assert store.get_job_by_hash(HASH).tmdb_id == 99
         torrent_client.download.assert_awaited_once()
 
+    def test_forwards_source_url_to_downloader(self, app_client, torrent_client: AsyncMock):
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": HASH}
+        app_client.post(
+            "/api/v1/download",
+            json={"source_url": TORRENT_URL, "media_type": "show", "tmdb_id": 42},
+        )
+        assert torrent_client.download.await_args.kwargs["source_url"] == TORRENT_URL
+
+    def test_hashless_downloader_response_leaves_job_unstamped(
+        self, app_client, store: JobStore, torrent_client: AsyncMock
+    ):
+        # Readback failed downstream: the job exists but has no hash yet; the
+        # completion webhook will backfill it.
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": None}
+        resp = app_client.post(
+            "/api/v1/download",
+            json={"source_url": TORRENT_URL, "media_type": "show", "tmdb_id": 42},
+        )
+        assert resp.status_code == 202
+        assert resp.json()["job"]["torrent_hash"] is None
+        assert len(store.list_jobs()) == 1
+
     def test_resolves_title_at_submit(self, app_client, store: JobStore, torrent_client: AsyncMock):
-        # tmdb_id is known at submit, so the gateway resolves Title (Year) now -
-        # /jobs shows it immediately instead of just the hash.
+        # tmdb_id is known at submit, so the gateway resolves Title (Year) now.
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": HASH}
         torrent_client.tmdb_detail.return_value = {
             "status": "success",
             "data": {"title": "Dune", "release_date": "2021-10-22"},
         }
         resp = app_client.post(
             "/api/v1/download",
-            json={"magnet_uri": MAGNET, "media_type": "movie", "tmdb_id": 438631},
+            json={"source_url": MAGNET, "media_type": "movie", "tmdb_id": 438631},
         )
         assert resp.status_code == 202
         assert resp.json()["job"]["resolved_title"] == "Dune"
@@ -45,39 +71,32 @@ class TestDownload:
         # A metadata hiccup must not block the actual download.
         from medialab_orchestrator.core.errors import AppException, ErrorCode
 
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": HASH}
         torrent_client.tmdb_detail.side_effect = AppException(
             status_code=502, code=ErrorCode.DOWNSTREAM_UNAVAILABLE, detail="tmdb down"
         )
         resp = app_client.post(
             "/api/v1/download",
-            json={"magnet_uri": MAGNET, "media_type": "movie", "tmdb_id": 1},
+            json={"source_url": MAGNET, "media_type": "movie", "tmdb_id": 1},
         )
         assert resp.status_code == 202
         assert store.get_job_by_hash(HASH).resolved_title is None
         torrent_client.download.assert_awaited_once()
 
-    def test_magnet_without_hash_rejected(self, app_client):
-        resp = app_client.post(
-            "/api/v1/download",
-            json={"magnet_uri": "magnet:?dn=NoHash", "media_type": "movie", "tmdb_id": 1},
-        )
-        assert resp.status_code == 422
-        assert resp.json()["code"] == "INVALID_INPUT"
-
 
 class TestJobs:
     def test_list_and_filter(self, app_client, store: JobStore):
-        store.create_job(torrent_hash=HASH, release_name="r", media_type=MediaType.MOVIE, tmdb_id=1)
-        store.update_job(HASH, status=JobStatus.DONE)
+        job = store.create_job(release_name="r", media_type=MediaType.MOVIE, tmdb_id=1)
+        store.update_job(job.id, status=JobStatus.DONE)
         assert len(app_client.get("/api/v1/jobs").json()["jobs"]) == 1
         assert len(app_client.get("/api/v1/jobs?status=DONE").json()["jobs"]) == 1
         assert len(app_client.get("/api/v1/jobs?status=FAILED").json()["jobs"]) == 0
 
     def test_get_single(self, app_client, store: JobStore):
-        store.create_job(torrent_hash=HASH, release_name="r", media_type=MediaType.MOVIE, tmdb_id=1)
-        resp = app_client.get(f"/api/v1/jobs/{HASH}")
+        job = store.create_job(release_name="r", media_type=MediaType.MOVIE, tmdb_id=1)
+        resp = app_client.get(f"/api/v1/jobs/{job.id}")
         assert resp.status_code == 200
-        assert resp.json()["torrent_hash"] == HASH
+        assert resp.json()["id"] == job.id
 
     def test_get_missing_404(self, app_client):
         resp = app_client.get("/api/v1/jobs/deadbeef")
@@ -88,7 +107,7 @@ class TestJobs:
 class TestTransfersAndStorage:
     def test_transfers_merges(self, app_client, store: JobStore, torrent_client: AsyncMock):
         torrent_client.transfers.return_value = {"data": []}
-        store.create_job(torrent_hash=HASH, release_name="r", media_type=MediaType.MOVIE, tmdb_id=1)
+        store.create_job(release_name="r", media_type=MediaType.MOVIE, tmdb_id=1)
         body = app_client.get("/api/v1/transfers").json()
         assert "transfers" in body
         assert len(body["jobs"]) == 1
