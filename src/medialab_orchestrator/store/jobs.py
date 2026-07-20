@@ -33,7 +33,6 @@ class JobStatus(str, Enum):
     STOP_SEEDING = "STOP_SEEDING"
     RESOLVE_META = "RESOLVE_META"
     RENAME = "RENAME"
-    REGISTER = "REGISTER"
     SCAN = "SCAN"
     DONE = "DONE"
     FAILED = "FAILED"

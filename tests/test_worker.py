@@ -72,7 +72,9 @@ class TestHappyPath:
         assert job.resolved_year == 2019
         assert job.dest_path == str(tmp_path / "Shows" / "Show Name (2019)" / "Season 01")
         torrent_client.stop_seeding.assert_awaited_once()
-        jellyfin_client.register_path.assert_awaited_once()
+        # The library root is registered once at setup, not per-download, so the
+        # pipeline scans the already-covered path rather than registering it.
+        jellyfin_client.register_path.assert_not_awaited()
         jellyfin_client.scan.assert_awaited_once()
         # The moved folder is in place.
         assert (tmp_path / "Shows" / "Show Name (2019)" / "Season 01").exists()
