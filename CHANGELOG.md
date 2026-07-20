@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-20
+
 ### Changed
 
 - **Jobs are now keyed by a surrogate `id` (uuid), not the torrent hash.** The
