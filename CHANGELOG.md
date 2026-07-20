@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-07-20
+
 ### Fixed
 
 - Removed the per-download REGISTER pipeline step (and `JobStatus.REGISTER`).
