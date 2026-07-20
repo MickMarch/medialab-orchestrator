@@ -135,7 +135,11 @@ All under `/api/v1`, all require the gateway `X-API-Key` except `/health`.
   `scripts/notify_complete.py` (qBittorrent completion hook child process).
   Finds the job by hash, advances it into the post-download pipeline, returns
   `202` immediately (never blocks qBittorrent). If no job matches the hash,
-  inserts one so the event is still tracked.
+  inserts one so the event is still tracked. The relay is **standalone +
+  stdlib-only** (only `urllib`, no third-party or package imports), so it runs
+  on the host next to qBittorrent today and unchanged inside the qBittorrent
+  container later (item 20 = re-point one qB setting). Wiring instructions +
+  the Windows Defender write-lock note are in the README.
 
 **Health:**
 - `GET /api/v1/health` - public, no auth. Reports reachability of both

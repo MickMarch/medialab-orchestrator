@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The qBittorrent completion relay (`scripts/notify_complete.py`) is now
+  standalone and standard-library-only (`urllib` instead of `httpx`, no package
+  imports). It can be dropped in as a single file and run by qBittorrent's
+  completion command on the host - no install, no venv - and runs unchanged
+  inside the qBittorrent container later. Added a test suite covering arg
+  handling, the keyed POST, and error paths.
+
+### Docs
+
+- README: how to wire qBittorrent's "Run external program on torrent
+  completion" to the relay (the step that makes the post-download pipeline
+  actually run), plus a Windows Defender write-lock note.
+
 ## [0.4.0] - 2026-07-20
 
 ### Changed
