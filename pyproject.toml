@@ -13,7 +13,7 @@ dependencies = [
     "httpx>=0.28.0",
     "medialab-contracts",
     "parse-torrent-title>=2.8.2",
-    "pydantic-settings>=2.14.2",
+    "pydantic-settings>=2.15.0",
     "slowapi>=0.1.9",
     "uvicorn>=0.46.0",
 ]
