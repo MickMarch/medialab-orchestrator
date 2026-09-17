@@ -14,6 +14,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pushed tag (shared `release.yml`).
 - Dependabot updates arrive grouped, one PR per ecosystem.
 
+### Fixed
+
+- `.env.example` pointed `MEDIALAB_JELLYFIN_URL` at port 8000; medialab-jellyfin
+  listens on 8001. A fresh copy of the template now works.
+
 ## [0.4.2] - 2026-07-20
 
 ### Fixed
