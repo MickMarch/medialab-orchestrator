@@ -1,0 +1,13 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Publishes the GitHub Release from the CHANGELOG section matching the tag.
+    uses: MickMarch/medialab/.github/workflows/release.yml@main
