@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `POST /api/v1/transfers/stop-seeding`: pauses every seeding torrent via
+  torrent-downloader, returns its `{status, message}` with 202. No job involved.
+
 ## [0.5.0] - 2026-09-21
 
 ### Changed
