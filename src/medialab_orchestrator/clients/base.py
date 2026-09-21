@@ -11,11 +11,11 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+from medialab_contracts import API_KEY_HEADER, HEALTH_PATH
 
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.logger import app_logger
 
-_API_KEY_HEADER = "X-API-Key"
 _DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
@@ -37,7 +37,7 @@ class DownstreamClient:
     ) -> None:
         self._name = name
         self._base_url = base_url.rstrip("/")
-        self._headers = {_API_KEY_HEADER: api_key} if api_key else {}
+        self._headers = {API_KEY_HEADER: api_key} if api_key else {}
         self._timeout = timeout_seconds
 
     async def request(
@@ -90,7 +90,7 @@ class DownstreamClient:
         aggregated health signal. Never raises - returns False on any failure."""
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.get(f"{self._base_url}/api/v1/health")
+                response = await client.get(f"{self._base_url}{HEALTH_PATH}")
             return response.status_code == httpx.codes.OK
         except httpx.HTTPError:
             return False
