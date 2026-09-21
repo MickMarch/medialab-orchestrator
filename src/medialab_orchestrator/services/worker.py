@@ -16,7 +16,7 @@ import asyncio
 from pathlib import Path
 
 from fastapi import status as fastapi_status
-from medialab_contracts import MediaType
+from medialab_contracts import MEDIA_TYPE_SUBDIRS
 
 from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClient
 from medialab_orchestrator.core.config import config
@@ -110,7 +110,7 @@ class PipelineWorker:
         )
 
     async def _step_rename(self, job: PipelineJob) -> PipelineJob:
-        media_root = Path(config.media_mount_path) / _MEDIA_SUBDIR[job.media_type]
+        media_root = Path(config.media_mount_path) / MEDIA_TYPE_SUBDIRS[job.media_type]
         source, dest = plan_rename(
             media_type=job.media_type,
             media_root=media_root,
@@ -125,13 +125,6 @@ class PipelineWorker:
         await self._jellyfin.scan(path=job.dest_path or "")
         return self._store.update_job(job.id, status=JobStatus.DONE)
 
-
-# In-container media-type subdir of the shared mount. Matches the dirs
-# torrent-downloader/qBittorrent save into (Movies / Shows).
-_MEDIA_SUBDIR: dict[MediaType, str] = {
-    MediaType.MOVIE: "Movies",
-    MediaType.SHOW: "Shows",
-}
 
 _STEPS = {
     JobStatus.STOP_SEEDING: PipelineWorker._step_stop_seeding,
