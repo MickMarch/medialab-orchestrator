@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-24
+
 ### Added
 
 - `POST /api/v1/transfers/stop-seeding`: pauses every seeding torrent via
