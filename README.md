@@ -44,6 +44,7 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 | `GET` | `/jobs[?status=]`, `GET /jobs/{id}` | Pipeline lifecycle view. |
 | `POST` | `/jobs/{id}/retry` | Re-enter the worker from the last good state. `409` if the job has no hash yet. |
 | `GET` | `/storage` | Proxy to torrent-downloader. |
+| `POST` | `/transfers/stop-seeding` | Proxy to torrent-downloader: pause every seeding (completed) torrent, never an in-progress download. `202`. No job involved. |
 | `POST` | `/webhooks/torrent-complete` | Body `{hash, name}`, sent by the completion relay. Matches the job by hash (or orphan-inserts), advances it off the request thread, returns `202`. |
 
 Errors: `{"status": "error", "code": "<ErrorCode>", "detail": "..."}`. Every

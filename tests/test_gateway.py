@@ -116,6 +116,21 @@ class TestTransfersAndStorage:
         torrent_client.storage.return_value = {"free": 1}
         assert app_client.get("/api/v1/storage").json() == {"free": 1}
 
+    def test_stop_seeding_proxied_with_accepted(self, app_client, torrent_client: AsyncMock):
+        torrent_client.stop_seeding.return_value = {
+            "status": "success",
+            "message": "All seeding transfers stopped.",
+        }
+        resp = app_client.post("/api/v1/transfers/stop-seeding")
+        assert resp.status_code == 202
+        assert resp.json()["message"] == "All seeding transfers stopped."
+        torrent_client.stop_seeding.assert_awaited_once()
+
+    def test_stop_seeding_creates_no_job(self, app_client, store: JobStore, torrent_client):
+        torrent_client.stop_seeding.return_value = {"status": "success", "message": "ok"}
+        app_client.post("/api/v1/transfers/stop-seeding")
+        assert store.list_jobs() == []
+
 
 class TestSearchTorrentsProxy:
     def test_requires_media_type(self, app_client, torrent_client: AsyncMock):

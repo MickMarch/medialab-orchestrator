@@ -161,6 +161,19 @@ async def retry_job(
     return JobView.from_job(job)
 
 
+@router.post(
+    "/transfers/stop-seeding",
+    status_code=fastapi_status.HTTP_202_ACCEPTED,
+    summary="Pause every seeding (completed) torrent. Proxied to torrent-downloader.",
+    responses=_COMMON_ERRORS,
+)
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def stop_seeding(request: Request, ctx: AppContext = Depends(get_context)) -> Any:
+    # A user action on the torrent client, not a pipeline transition: no job is
+    # created or touched. In-progress downloads are never affected downstream.
+    return await ctx.torrent.stop_seeding()
+
+
 @router.get(
     "/storage",
     status_code=fastapi_status.HTTP_200_OK,
