@@ -1,61 +1,165 @@
-"""TV folder rename into Jellyfin's required convention.
+"""Place a finished download into Jellyfin's documented layout.
 
-Jellyfin's TV library requires ``Series Name (Year)/Season NN/`` exactly (season
-zero-padded, never ``S01``). Torrent release names almost never match
-(``Show.Name.S01.1080p.GROUP``), so the orchestrator restructures the downloaded
-folder before triggering a Jellyfin scan.
+Movies:  ``Movies/Title (Year)/Title (Year).ext``, other videos in ``extras/``.
+Shows:   ``Shows/Title (Year)/Season NN/Title SNNEMM.ext``, specials in
+         ``Season 00``, multi-episode files as ``SNNEMM-EMM``.
 
-Title and year come from TMDB (resolved upstream), never from the release name.
-PTN parses the release name for the **season number only**. Movies need no
-rename - Jellyfin matches movie folders loosely.
+Title and year come from TMDB (resolved upstream), never from release names.
+PTN parses each file name for season and episode only. Subtitle files follow
+the video whose stem they extend, keeping their language suffix. Everything
+else is left in the download folder, which is deleted only once it holds no
+video at all.
+
+``plan_rename`` is pure (it takes a file listing and returns moves) so the
+placement rules are unit-testable with no disk; ``apply_plan`` does the I/O.
 """
 
 from __future__ import annotations
 
+import re
 import shutil
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 import PTN
+from fastapi import status as fastapi_status
 from medialab_contracts import MediaType
 
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 
+VIDEO_EXTENSIONS = frozenset({".mkv", ".mp4", ".avi", ".m4v", ".ts", ".webm", ".mov"})
+SUBTITLE_EXTENSIONS = frozenset({".srt", ".ass", ".sub", ".idx", ".vtt"})
+EXTRAS_DIR = "extras"
+"""Jellyfin lists videos in this movie subfolder as extras, not as versions."""
+
 _SEASON_DIR_TEMPLATE = "Season {season:02d}"
+_EPISODE_TEMPLATE = "S{season:02d}E{episode:02d}"
+_EPISODE_RANGE_TEMPLATE = "S{season:02d}E{first:02d}-E{last:02d}"
+_ILLEGAL_PATH_CHARS = re.compile(r'[\\/:*?"<>|]')
+_WHITESPACE = re.compile(r"\s+")
 
 
-class SeasonUnparseableError(Exception):
-    """Raised when a TV release name yields no parseable season number."""
+class EpisodeUnparseableError(Exception):
+    """Raised when a show's video file name yields no season and episode."""
 
 
-def parse_season(release_name: str) -> int:
-    """Extract the season number from a release name via PTN.
+@dataclass(frozen=True)
+class MediaFile:
+    path: Path
+    size: int
 
-    Raises ``SeasonUnparseableError`` if no season is present, so the worker can
-    mark the job FAILED with a clear error rather than silently mis-filing.
+
+@dataclass(frozen=True)
+class RenamePlan:
+    source: Path
+    scan_dir: Path
+    moves: tuple[tuple[Path, Path], ...]
+
+
+def sanitize_title(title: str) -> str:
+    """Strip characters Windows paths reject, collapse whitespace, drop trailing dots."""
+    cleaned = _ILLEGAL_PATH_CHARS.sub("", title)
+    cleaned = _WHITESPACE.sub(" ", cleaned).strip()
+    return cleaned.rstrip(".").strip()
+
+
+def title_dir(title: str, year: int) -> str:
+    clean = sanitize_title(title)
+    return f"{clean} ({year})" if year > 0 else clean
+
+
+def parse_episode(file_name: str) -> tuple[int, list[int]]:
+    """Season and sorted episode numbers from a file name via PTN.
+
+    Raises ``EpisodeUnparseableError`` when either is missing, so the caller can
+    fail the whole job instead of half-placing a season.
     """
-    parsed = PTN.parse(release_name)
+    parsed = PTN.parse(file_name)
     season = parsed.get("season")
-    if isinstance(season, list):
-        # Multi-season packs report a list; the single-season pipeline cannot
-        # place these unambiguously - surface for operator handling.
-        raise SeasonUnparseableError(
-            f"Release name spans multiple seasons {season}: {release_name!r}"
-        )
-    if not isinstance(season, int):
-        raise SeasonUnparseableError(f"No season number in release name: {release_name!r}")
-    return season
+    episode = parsed.get("episode")
+    if isinstance(season, list) or not isinstance(season, int):
+        raise EpisodeUnparseableError(f"No single season number in file name: {file_name!r}")
+    episodes = episode if isinstance(episode, list) else [episode]
+    if not episodes or not all(isinstance(e, int) for e in episodes):
+        raise EpisodeUnparseableError(f"No episode number in file name: {file_name!r}")
+    return season, sorted(episodes)
 
 
-def build_tv_dest(*, media_root: Path, title: str, year: int, season: int) -> Path:
-    """Compute the Jellyfin-convention destination dir for a TV download."""
-    series_dir = f"{title} ({year})"
-    season_dir = _SEASON_DIR_TEMPLATE.format(season=season)
-    return media_root / series_dir / season_dir
+def episode_stem(title: str, season: int, episodes: Sequence[int]) -> str:
+    clean = sanitize_title(title)
+    if len(episodes) == 1:
+        return f"{clean} {_EPISODE_TEMPLATE.format(season=season, episode=episodes[0])}"
+    tag = _EPISODE_RANGE_TEMPLATE.format(season=season, first=episodes[0], last=episodes[-1])
+    return f"{clean} {tag}"
 
 
-def build_movie_dest(*, media_root: Path, release_name: str) -> Path:
-    """Movies are not renamed; destination is the download folder as-is."""
-    return media_root / release_name
+def list_files(source: Path) -> list[MediaFile]:
+    """Every file under ``source`` (or ``source`` itself when it is a file), with sizes."""
+    if source.is_file():
+        return [MediaFile(path=source, size=source.stat().st_size)]
+    if not source.is_dir():
+        return []
+    return sorted(
+        (MediaFile(path=p, size=p.stat().st_size) for p in source.rglob("*") if p.is_file()),
+        key=lambda f: str(f.path),
+    )
+
+
+def _is_video(file: MediaFile) -> bool:
+    return file.path.suffix.lower() in VIDEO_EXTENSIONS
+
+
+def _companions(video: MediaFile, files: Sequence[MediaFile]) -> list[tuple[MediaFile, str]]:
+    """Subtitle files whose stem extends the video's stem, with the extra suffix
+    (``.en``, ``.forced``) they carry after it."""
+    stem = video.path.stem
+    found = []
+    for f in files:
+        if f.path.suffix.lower() not in SUBTITLE_EXTENSIONS or f.path.parent != video.path.parent:
+            continue
+        if f.path.stem == stem or f.path.stem.startswith(stem + "."):
+            found.append((f, f.path.stem[len(stem) :]))
+    return found
+
+
+def _plan_show(
+    *, media_root: Path, title: str, year: int, files: Sequence[MediaFile]
+) -> tuple[Path, list[tuple[Path, Path]]]:
+    series_dir = media_root / title_dir(title, year)
+    moves: list[tuple[Path, Path]] = []
+    for video in filter(_is_video, files):
+        try:
+            season, episodes = parse_episode(video.path.name)
+        except EpisodeUnparseableError as exc:
+            raise AppException(
+                status_code=fastapi_status.HTTP_422_UNPROCESSABLE_CONTENT,
+                code=ErrorCode.EPISODE_UNPARSEABLE,
+                detail=str(exc),
+            ) from exc
+        season_dir = series_dir / _SEASON_DIR_TEMPLATE.format(season=season)
+        stem = episode_stem(title, season, episodes)
+        moves.append((video.path, season_dir / f"{stem}{video.path.suffix.lower()}"))
+        for companion, extra in _companions(video, files):
+            moves.append((companion.path, season_dir / f"{stem}{extra}{companion.path.suffix}"))
+    return series_dir, moves
+
+
+def _plan_movie(
+    *, media_root: Path, title: str, year: int, files: Sequence[MediaFile]
+) -> tuple[Path, list[tuple[Path, Path]]]:
+    movie_dir = media_root / title_dir(title, year)
+    videos = sorted(filter(_is_video, files), key=lambda f: f.size, reverse=True)
+    if not videos:
+        return movie_dir, []
+    main, *extras = videos
+    stem = title_dir(title, year)
+    moves: list[tuple[Path, Path]] = [(main.path, movie_dir / f"{stem}{main.path.suffix.lower()}")]
+    for companion, extra in _companions(main, files):
+        moves.append((companion.path, movie_dir / f"{stem}{extra}{companion.path.suffix}"))
+    for video in extras:
+        moves.append((video.path, movie_dir / EXTRAS_DIR / video.path.name))
+    return movie_dir, moves
 
 
 def plan_rename(
@@ -65,36 +169,25 @@ def plan_rename(
     release_name: str,
     title: str,
     year: int,
-) -> tuple[Path, Path]:
-    """Compute ``(source, dest)`` for a download without touching the filesystem.
-
-    Pure function - the FS move is done separately by ``apply_rename`` so the
-    planning is unit-testable with no disk.
-    """
+    files: Sequence[MediaFile],
+) -> RenamePlan:
+    """Compute every file move for a download without touching the filesystem."""
     source = media_root / release_name
     if media_type is MediaType.MOVIE:
-        return source, build_movie_dest(media_root=media_root, release_name=release_name)
-    try:
-        season = parse_season(release_name)
-    except SeasonUnparseableError as exc:
-        raise AppException(
-            status_code=422,
-            code=ErrorCode.SEASON_UNPARSEABLE,
-            detail=str(exc),
-        ) from exc
-    return source, build_tv_dest(media_root=media_root, title=title, year=year, season=season)
+        scan_dir, moves = _plan_movie(media_root=media_root, title=title, year=year, files=files)
+    else:
+        scan_dir, moves = _plan_show(media_root=media_root, title=title, year=year, files=files)
+    return RenamePlan(source=source, scan_dir=scan_dir, moves=tuple(moves))
 
 
-def apply_rename(source: Path, dest: Path) -> None:
-    """Move ``source`` into ``dest`` through the shared media mount.
-
-    Idempotent: if ``dest`` already exists, the move is skipped (a retry that
-    already ran the move is a no-op). Movies where source == dest are also a
-    no-op.
-    """
-    if dest.exists():
-        return
-    if source == dest:
-        return
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(source), str(dest))
+def apply_plan(plan: RenamePlan) -> None:
+    """Execute the moves. Idempotent: existing destinations and missing sources
+    are skipped, so a retry after a partial run finishes the remainder. The
+    source folder is removed only once it holds no video file."""
+    for src, dest in plan.moves:
+        if dest.exists() or not src.exists():
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(dest))
+    if plan.source.is_dir() and not any(_is_video(f) for f in list_files(plan.source)):
+        shutil.rmtree(plan.source)

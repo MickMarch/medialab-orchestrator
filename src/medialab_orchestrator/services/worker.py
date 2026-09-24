@@ -6,8 +6,8 @@ committed state on retry. Failure is forward-retry: the step records
 ``last_error`` and sets status FAILED; ``retry`` re-enters from the last good
 state (the worker reads current status and runs the remaining steps).
 
-Title/year come from TMDB (via torrent-downloader); PTN is season-only. The file
-move goes through the shared media mount, never a host shell.
+Title/year come from TMDB (via torrent-downloader); PTN parses season and
+episode per file. Moves go through the shared media mount, never a host shell.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from medialab_orchestrator.core.config import config
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.services.metadata import resolve_title_year
-from medialab_orchestrator.services.rename import apply_rename, plan_rename
+from medialab_orchestrator.services.rename import apply_plan, list_files, plan_rename
 from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob
 
 
@@ -111,15 +111,17 @@ class PipelineWorker:
 
     async def _step_rename(self, job: PipelineJob) -> PipelineJob:
         media_root = Path(config.media_mount_path) / MEDIA_TYPE_SUBDIRS[job.media_type]
-        source, dest = plan_rename(
+        files = await asyncio.to_thread(list_files, media_root / job.release_name)
+        plan = plan_rename(
             media_type=job.media_type,
             media_root=media_root,
             release_name=job.release_name,
             title=job.resolved_title or "",
             year=job.resolved_year or 0,
+            files=files,
         )
-        await asyncio.to_thread(apply_rename, source, dest)
-        return self._store.update_job(job.id, status=JobStatus.SCAN, dest_path=str(dest))
+        await asyncio.to_thread(apply_plan, plan)
+        return self._store.update_job(job.id, status=JobStatus.SCAN, dest_path=str(plan.scan_dir))
 
     async def _step_scan(self, job: PipelineJob) -> PipelineJob:
         await self._jellyfin.scan(path=job.dest_path or "")

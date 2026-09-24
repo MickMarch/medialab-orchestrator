@@ -62,6 +62,7 @@ class TestHappyPath:
     ):
         mocker.patch.object(worker_module.config, "media_mount_path", str(tmp_path))
         (tmp_path / "Shows" / TV_RELEASE).mkdir(parents=True)
+        (tmp_path / "Shows" / TV_RELEASE / "Show.Name.S01E01.1080p.mkv").write_text("ep")
         _seed_tv_job(store)
         _wire_downstream(torrent_client, jellyfin_client)
 
@@ -70,18 +71,20 @@ class TestHappyPath:
         assert job.status is JobStatus.DONE
         assert job.resolved_title == "Show Name"
         assert job.resolved_year == 2019
-        assert job.dest_path == str(tmp_path / "Shows" / "Show Name (2019)" / "Season 01")
+        assert job.dest_path == str(tmp_path / "Shows" / "Show Name (2019)")
         torrent_client.stop_seeding.assert_awaited_once()
         # The library root is registered once at setup, not per-download, so the
         # pipeline scans the already-covered path rather than registering it.
         jellyfin_client.register_path.assert_not_awaited()
         jellyfin_client.scan.assert_awaited_once()
-        # The moved folder is in place.
-        assert (tmp_path / "Shows" / "Show Name (2019)" / "Season 01").exists()
+        # The episode is placed and named; the emptied download folder is gone.
+        episode = tmp_path / "Shows" / "Show Name (2019)" / "Season 01" / "Show Name S01E01.mkv"
+        assert episode.read_text() == "ep"
+        assert not (tmp_path / "Shows" / TV_RELEASE).exists()
 
 
 class TestFailure:
-    async def test_unparseable_season_marks_failed(
+    async def test_unparseable_episode_marks_failed(
         self,
         worker: PipelineWorker,
         store: JobStore,
@@ -91,6 +94,9 @@ class TestFailure:
         mocker,
     ):
         mocker.patch.object(worker_module.config, "media_mount_path", str(tmp_path))
+        bad = tmp_path / "Shows" / "Show.Name.NoSeason.1080p"
+        bad.mkdir(parents=True)
+        (bad / "Show.Name.Bonus.mkv").write_text("x")
         _seed_tv_job(store, release="Show.Name.NoSeason.1080p")
         _wire_downstream(torrent_client, jellyfin_client)
 
@@ -98,6 +104,8 @@ class TestFailure:
 
         assert job.status is JobStatus.FAILED
         assert "RENAME" in (job.last_error or "")
+        assert "Show.Name.Bonus.mkv" in (job.last_error or "")
+        assert (bad / "Show.Name.Bonus.mkv").exists()
         assert job.attempts == 1
         jellyfin_client.register_path.assert_not_awaited()
 
@@ -128,14 +136,18 @@ class TestRetry:
         mocker,
     ):
         mocker.patch.object(worker_module.config, "media_mount_path", str(tmp_path))
+        bad = tmp_path / "Shows" / "Show.Name.NoSeason.1080p"
+        bad.mkdir(parents=True)
+        (bad / "Show.Name.Bonus.mkv").write_text("x")
         _seed_tv_job(store, release="Show.Name.NoSeason.1080p")
         _wire_downstream(torrent_client, jellyfin_client)
 
         failed = await worker.process(HASH)
         assert failed.status is JobStatus.FAILED
 
-        # Operator fixes the folder name; retry re-enters from STOP_SEEDING.
+        # Operator fixes the folder and file names; retry re-enters from STOP_SEEDING.
         (tmp_path / "Shows" / TV_RELEASE).mkdir(parents=True)
+        (tmp_path / "Shows" / TV_RELEASE / "Show.Name.S01E01.mkv").write_text("x")
         store.update_job(store.get_job_by_hash(HASH).id, release_name=TV_RELEASE)
         recovered = await worker.process(HASH)
         assert recovered.status is JobStatus.DONE

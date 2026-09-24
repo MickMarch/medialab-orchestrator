@@ -1,4 +1,4 @@
-"""Rename-service tests: season parsing, destination planning, idempotent move."""
+"""Rename planning to Jellyfin's layout (pure, no disk) and the mover (tmp_path)."""
 
 from pathlib import Path
 
@@ -7,109 +7,318 @@ from medialab_contracts import MediaType
 
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.services.rename import (
-    SeasonUnparseableError,
-    apply_rename,
-    build_movie_dest,
-    build_tv_dest,
-    parse_season,
+    EpisodeUnparseableError,
+    MediaFile,
+    RenamePlan,
+    apply_plan,
+    episode_stem,
+    list_files,
+    parse_episode,
     plan_rename,
+    sanitize_title,
+    title_dir,
 )
 
-ROOT = Path("/media/Shows")
+SHOWS = Path("/media/Shows")
+MOVIES = Path("/media/Movies")
+GB = 1_000_000_000
 
 
-class TestParseSeason:
+def _files(source: Path, *names: str, size: int = GB) -> list[MediaFile]:
+    return [MediaFile(path=source / n, size=size) for n in names]
+
+
+def _moves(plan: RenamePlan) -> dict[Path, Path]:
+    return dict(plan.moves)
+
+
+class TestTitle:
     @pytest.mark.parametrize(
-        ("release", "expected"),
+        ("raw", "clean"),
         [
-            ("Show.Name.S01.1080p.GROUP", 1),
-            ("Show.Name.S03.720p.HEVC", 3),
-            ("The Show Name Season 2 1080p", 2),
-            ("Some.Show.S10.COMPLETE", 10),
+            ("Mission: Impossible", "Mission Impossible"),
+            ('What/If? "Quoted" <b>', "WhatIf Quoted b"),
+            ("  Two   Spaces ", "Two Spaces"),
+            ("Ends with dot.", "Ends with dot"),
+            ("Plain Title", "Plain Title"),
         ],
     )
-    def test_parses_single_season(self, release: str, expected: int):
-        assert parse_season(release) == expected
+    def test_sanitize(self, raw: str, clean: str):
+        assert sanitize_title(raw) == clean
 
-    def test_no_season_raises(self):
-        with pytest.raises(SeasonUnparseableError):
-            parse_season("Movie.Name.2020.1080p.BluRay")
-
-    def test_multi_season_pack_raises(self):
-        with pytest.raises(SeasonUnparseableError):
-            parse_season("Show.Name.S01-S03.1080p.GROUP")
+    def test_title_dir_with_and_without_year(self):
+        assert title_dir("The Show", 2020) == "The Show (2020)"
+        assert title_dir("The Show", 0) == "The Show"
 
 
-class TestDest:
-    def test_tv_dest_zero_padded(self):
-        dest = build_tv_dest(media_root=ROOT, title="The Show", year=2020, season=1)
-        assert dest == ROOT / "The Show (2020)" / "Season 01"
+class TestParseEpisode:
+    @pytest.mark.parametrize(
+        ("name", "season", "episodes"),
+        [
+            ("Show.Name.S01E02.1080p.WEB-DL.x264-GROUP.mkv", 1, [2]),
+            ("Show Name - 1x03 - Title.mkv", 1, [3]),
+            ("Show.Name.S01E01E02.1080p.mkv", 1, [1, 2]),
+            ("Show.Name.S01E01-E02.1080p.mkv", 1, [1, 2]),
+            ("show.name.s00e05.special.mkv", 0, [5]),
+            ("Show (2019) - S10E12 - Finale.mkv", 10, [12]),
+        ],
+    )
+    def test_parses(self, name: str, season: int, episodes: list[int]):
+        assert parse_episode(name) == (season, episodes)
 
-    def test_tv_dest_two_digit_season(self):
-        dest = build_tv_dest(media_root=ROOT, title="The Show", year=2020, season=12)
-        assert dest == ROOT / "The Show (2020)" / "Season 12"
+    @pytest.mark.parametrize(
+        "name", ["Show.Name.S01.1080p.GROUP.mkv", "Movie.Name.2020.1080p.mkv", "sample.mkv"]
+    )
+    def test_unparseable(self, name: str):
+        with pytest.raises(EpisodeUnparseableError):
+            parse_episode(name)
 
-    def test_movie_dest_unchanged(self):
-        dest = build_movie_dest(media_root=Path("/media/Movies"), release_name="Foo.2021")
-        assert dest == Path("/media/Movies") / "Foo.2021"
+    def test_episode_stem(self):
+        assert episode_stem("The Show", 1, [2]) == "The Show S01E02"
+        assert episode_stem("The Show", 1, [1, 2]) == "The Show S01E01-E02"
+        assert episode_stem("The Show", 0, [5]) == "The Show S00E05"
 
 
-class TestPlanRename:
-    def test_tv_plan(self):
-        source, dest = plan_rename(
+class TestPlanShow:
+    def test_season_pack_places_every_episode(self):
+        source = SHOWS / "Show.Name.S01.1080p.GROUP"
+        plan = plan_rename(
             media_type=MediaType.SHOW,
-            media_root=ROOT,
-            release_name="Show.Name.S02.1080p.GROUP",
+            media_root=SHOWS,
+            release_name=source.name,
             title="Show Name",
             year=2019,
+            files=_files(source, "Show.Name.S01E01.1080p.mkv", "Show.Name.S01E02.1080p.mkv"),
         )
-        assert source == ROOT / "Show.Name.S02.1080p.GROUP"
-        assert dest == ROOT / "Show Name (2019)" / "Season 02"
+        season = SHOWS / "Show Name (2019)" / "Season 01"
+        assert plan.source == source
+        assert plan.scan_dir == SHOWS / "Show Name (2019)"
+        assert _moves(plan) == {
+            source / "Show.Name.S01E01.1080p.mkv": season / "Show Name S01E01.mkv",
+            source / "Show.Name.S01E02.1080p.mkv": season / "Show Name S01E02.mkv",
+        }
 
-    def test_movie_plan_no_move(self):
-        root = Path("/media/Movies")
-        source, dest = plan_rename(
-            media_type=MediaType.MOVIE,
-            media_root=root,
-            release_name="Foo.2021.1080p",
-            title="Foo",
-            year=2021,
+    def test_multi_season_nested_pack_places_by_each_files_season(self):
+        source = SHOWS / "Show.S01-S02"
+        files = [
+            MediaFile(path=source / "S01" / "Show.S01E01.mkv", size=GB),
+            MediaFile(path=source / "S02" / "Show.S02E01.mkv", size=GB),
+        ]
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name=source.name,
+            title="Show",
+            year=2019,
+            files=files,
         )
-        assert source == dest == root / "Foo.2021.1080p"
+        moves = _moves(plan)
+        assert moves[source / "S01" / "Show.S01E01.mkv"].parent.name == "Season 01"
+        assert moves[source / "S02" / "Show.S02E01.mkv"].parent.name == "Season 02"
 
-    def test_unparseable_tv_raises_app_exception(self):
+    def test_multi_episode_and_specials(self):
+        source = SHOWS / "Show.S01"
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name=source.name,
+            title="Show",
+            year=2019,
+            files=_files(source, "Show.S01E01-E02.mkv", "Show.S00E01.Pilot.mkv"),
+        )
+        moves = _moves(plan)
+        assert moves[source / "Show.S01E01-E02.mkv"].name == "Show S01E01-E02.mkv"
+        assert moves[source / "Show.S00E01.Pilot.mkv"] == (
+            SHOWS / "Show (2019)" / "Season 00" / "Show S00E01.mkv"
+        )
+
+    def test_subtitles_follow_their_video_keeping_language_suffix(self):
+        source = SHOWS / "Show.S01"
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name=source.name,
+            title="Show",
+            year=2019,
+            files=[
+                MediaFile(path=source / "Show.S01E01.1080p.mkv", size=GB),
+                MediaFile(path=source / "Show.S01E01.1080p.en.srt", size=10),
+                MediaFile(path=source / "Show.S01E01.1080p.srt", size=10),
+            ],
+        )
+        moves = _moves(plan)
+        season = SHOWS / "Show (2019)" / "Season 01"
+        assert moves[source / "Show.S01E01.1080p.en.srt"] == season / "Show S01E01.en.srt"
+        assert moves[source / "Show.S01E01.1080p.srt"] == season / "Show S01E01.srt"
+
+    def test_non_media_files_are_not_moved(self):
+        source = SHOWS / "Show.S01"
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name=source.name,
+            title="Show",
+            year=2019,
+            files=_files(source, "Show.S01E01.mkv", "Show.S01E01.nfo", "cover.jpg", "RARBG.txt"),
+        )
+        assert [src.name for src, _ in plan.moves] == ["Show.S01E01.mkv"]
+
+    def test_any_unparseable_episode_fails_the_whole_job(self):
+        source = SHOWS / "Show.S01"
         with pytest.raises(AppException) as exc:
             plan_rename(
                 media_type=MediaType.SHOW,
-                media_root=ROOT,
-                release_name="Show.Name.NoSeason.1080p",
-                title="Show Name",
+                media_root=SHOWS,
+                release_name=source.name,
+                title="Show",
                 year=2019,
+                files=_files(source, "Show.S01E01.mkv", "Show.Bonus.Featurette.mkv"),
             )
-        assert exc.value.code is ErrorCode.SEASON_UNPARSEABLE
+        assert exc.value.code is ErrorCode.EPISODE_UNPARSEABLE
+        assert "Show.Bonus.Featurette.mkv" in exc.value.detail
+
+    def test_single_file_torrent(self):
+        single = SHOWS / "Show.S01E05.1080p.mkv"
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name=single.name,
+            title="Show",
+            year=2019,
+            files=[MediaFile(path=single, size=GB)],
+        )
+        assert _moves(plan) == {single: SHOWS / "Show (2019)" / "Season 01" / "Show S01E05.mkv"}
+
+    def test_title_is_sanitised_in_paths(self):
+        source = SHOWS / "Show.S01"
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name=source.name,
+            title="Mission: Impossible",
+            year=2019,
+            files=_files(source, "Show.S01E01.mkv"),
+        )
+        dest = next(iter(_moves(plan).values()))
+        assert (
+            dest
+            == SHOWS / "Mission Impossible (2019)" / "Season 01" / "Mission Impossible S01E01.mkv"
+        )
 
 
-class TestApplyRename:
-    def test_moves_into_dest(self, tmp_path: Path):
+class TestPlanMovie:
+    def test_largest_video_is_the_main_file_others_are_extras(self):
+        source = MOVIES / "Movie.2021.1080p-GRP"
+        plan = plan_rename(
+            media_type=MediaType.MOVIE,
+            media_root=MOVIES,
+            release_name=source.name,
+            title="Movie",
+            year=2021,
+            files=[
+                MediaFile(path=source / "Movie.2021.1080p-GRP.mkv", size=8 * GB),
+                MediaFile(path=source / "Sample" / "sample.mkv", size=50_000_000),
+                MediaFile(path=source / "Movie.2021.1080p-GRP.en.srt", size=10),
+                MediaFile(path=source / "Movie.2021.1080p-GRP.nfo", size=10),
+            ],
+        )
+        movie_dir = MOVIES / "Movie (2021)"
+        assert plan.scan_dir == movie_dir
+        assert _moves(plan) == {
+            source / "Movie.2021.1080p-GRP.mkv": movie_dir / "Movie (2021).mkv",
+            source / "Movie.2021.1080p-GRP.en.srt": movie_dir / "Movie (2021).en.srt",
+            source / "Sample" / "sample.mkv": movie_dir / "extras" / "sample.mkv",
+        }
+
+    def test_single_file_movie(self):
+        single = MOVIES / "Movie.2021.1080p.mkv"
+        plan = plan_rename(
+            media_type=MediaType.MOVIE,
+            media_root=MOVIES,
+            release_name=single.name,
+            title="Movie",
+            year=2021,
+            files=[MediaFile(path=single, size=GB)],
+        )
+        assert _moves(plan) == {single: MOVIES / "Movie (2021)" / "Movie (2021).mkv"}
+
+    def test_no_video_files_plans_nothing_but_still_names_the_scan_dir(self):
+        source = MOVIES / "Movie.2021"
+        plan = plan_rename(
+            media_type=MediaType.MOVIE,
+            media_root=MOVIES,
+            release_name=source.name,
+            title="Movie",
+            year=2021,
+            files=_files(source, "readme.txt"),
+        )
+        assert plan.moves == ()
+        assert plan.scan_dir == MOVIES / "Movie (2021)"
+
+
+class TestListFiles:
+    def test_recursive_with_sizes(self, tmp_path: Path):
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "a.mkv").write_bytes(b"12345")
+        (tmp_path / "sub" / "b.srt").write_bytes(b"1")
+        found = {f.path.relative_to(tmp_path): f.size for f in list_files(tmp_path)}
+        assert found == {Path("a.mkv"): 5, Path("sub/b.srt"): 1}
+
+    def test_single_file_and_missing_source(self, tmp_path: Path):
+        single = tmp_path / "only.mkv"
+        single.write_bytes(b"xyz")
+        assert list_files(single) == [MediaFile(path=single, size=3)]
+        assert list_files(tmp_path / "nope") == []
+
+
+class TestApplyPlan:
+    def _plan(self, tmp_path: Path) -> RenamePlan:
         source = tmp_path / "Show.S01"
         source.mkdir()
-        (source / "ep.mkv").write_text("x")
-        dest = tmp_path / "Show (2020)" / "Season 01"
-        apply_rename(source, dest)
-        assert (dest / "ep.mkv").read_text() == "x"
-        assert not source.exists()
+        (source / "Show.S01E01.mkv").write_text("ep1")
+        (source / "Show.S01E01.en.srt").write_text("sub")
+        (source / "junk.txt").write_text("junk")
+        return plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=tmp_path,
+            release_name=source.name,
+            title="Show",
+            year=2019,
+            files=list_files(source),
+        )
 
-    def test_existing_dest_is_noop(self, tmp_path: Path):
-        source = tmp_path / "Show.S01"
-        source.mkdir()
-        dest = tmp_path / "Show (2020)" / "Season 01"
-        dest.mkdir(parents=True)
-        apply_rename(source, dest)
-        # Source untouched: the move was skipped because dest already exists.
-        assert source.exists()
+    def test_moves_files_and_deletes_the_emptied_source(self, tmp_path: Path):
+        plan = self._plan(tmp_path)
+        apply_plan(plan)
+        season = tmp_path / "Show (2019)" / "Season 01"
+        assert (season / "Show S01E01.mkv").read_text() == "ep1"
+        assert (season / "Show S01E01.en.srt").read_text() == "sub"
+        assert not plan.source.exists()
 
-    def test_same_source_dest_is_noop(self, tmp_path: Path):
-        path = tmp_path / "Foo.2021"
-        path.mkdir()
-        apply_rename(path, path)
-        assert path.exists()
+    def test_existing_destination_is_skipped_and_source_kept(self, tmp_path: Path):
+        plan = self._plan(tmp_path)
+        season = tmp_path / "Show (2019)" / "Season 01"
+        season.mkdir(parents=True)
+        (season / "Show S01E01.mkv").write_text("already")
+        apply_plan(plan)
+        assert (season / "Show S01E01.mkv").read_text() == "already"
+        # The video was not moved, so the source still holds a video and stays.
+        assert (plan.source / "Show.S01E01.mkv").exists()
+
+    def test_missing_source_file_is_skipped(self, tmp_path: Path):
+        plan = self._plan(tmp_path)
+        (plan.source / "Show.S01E01.en.srt").unlink()
+        apply_plan(plan)
+        assert (tmp_path / "Show (2019)" / "Season 01" / "Show S01E01.mkv").exists()
+
+    def test_source_with_leftover_video_is_kept(self, tmp_path: Path):
+        plan = self._plan(tmp_path)
+        (plan.source / "unplanned.mkv").write_text("left")
+        apply_plan(plan)
+        assert (plan.source / "unplanned.mkv").exists()
+
+    def test_rerun_is_a_noop(self, tmp_path: Path):
+        plan = self._plan(tmp_path)
+        apply_plan(plan)
+        apply_plan(plan)
+        assert (tmp_path / "Show (2019)" / "Season 01" / "Show S01E01.mkv").read_text() == "ep1"
