@@ -89,6 +89,7 @@ class TestPlanShow:
             media_type=MediaType.SHOW,
             media_root=SHOWS,
             release_name=source.name,
+            source=source,
             title="Show Name",
             year=2019,
             files=_files(source, "Show.Name.S01E01.1080p.mkv", "Show.Name.S01E02.1080p.mkv"),
@@ -111,6 +112,7 @@ class TestPlanShow:
             media_type=MediaType.SHOW,
             media_root=SHOWS,
             release_name=source.name,
+            source=source,
             title="Show",
             year=2019,
             files=files,
@@ -125,6 +127,7 @@ class TestPlanShow:
             media_type=MediaType.SHOW,
             media_root=SHOWS,
             release_name=source.name,
+            source=source,
             title="Show",
             year=2019,
             files=_files(source, "Show.S01E01-E02.mkv", "Show.S00E01.Pilot.mkv"),
@@ -141,6 +144,7 @@ class TestPlanShow:
             media_type=MediaType.SHOW,
             media_root=SHOWS,
             release_name=source.name,
+            source=source,
             title="Show",
             year=2019,
             files=[
@@ -160,6 +164,7 @@ class TestPlanShow:
             media_type=MediaType.SHOW,
             media_root=SHOWS,
             release_name=source.name,
+            source=source,
             title="Show",
             year=2019,
             files=_files(source, "Show.S01E01.mkv", "Show.S01E01.nfo", "cover.jpg", "RARBG.txt"),
@@ -173,6 +178,7 @@ class TestPlanShow:
                 media_type=MediaType.SHOW,
                 media_root=SHOWS,
                 release_name=source.name,
+                source=source,
                 title="Show",
                 year=2019,
                 files=_files(source, "Show.S01E01.mkv", "Show.Bonus.Featurette.mkv"),
@@ -198,6 +204,7 @@ class TestPlanShow:
             media_type=MediaType.SHOW,
             media_root=SHOWS,
             release_name=source.name,
+            source=source,
             title="Mission: Impossible",
             year=2019,
             files=_files(source, "Show.S01E01.mkv"),
@@ -216,6 +223,7 @@ class TestPlanMovie:
             media_type=MediaType.MOVIE,
             media_root=MOVIES,
             release_name=source.name,
+            source=source,
             title="Movie",
             year=2021,
             files=[
@@ -251,6 +259,7 @@ class TestPlanMovie:
             media_type=MediaType.MOVIE,
             media_root=MOVIES,
             release_name=source.name,
+            source=source,
             title="Movie",
             year=2021,
             files=_files(source, "readme.txt"),
@@ -285,6 +294,7 @@ class TestApplyPlan:
             media_type=MediaType.SHOW,
             media_root=tmp_path,
             release_name=source.name,
+            source=source,
             title="Show",
             year=2019,
             files=list_files(source),
@@ -355,6 +365,7 @@ class TestInterruptedMove:
             media_type=MediaType.MOVIE,
             media_root=tmp_path,
             release_name=source.name,
+            source=source,
             title="Movie",
             year=2021,
             files=list_files(source),
@@ -409,3 +420,16 @@ class TestUsableRootName:
         from medialab_orchestrator.services.rename import usable_root_name
 
         assert usable_root_name(value) == expected
+
+
+class TestLocateSource:
+    def test_prefers_staging_then_legacy_then_defaults_to_staging(self, tmp_path: Path):
+        from medialab_orchestrator.services.rename import locate_source, staging_root
+
+        root = tmp_path / "Movies"
+        assert staging_root(root) == tmp_path / "_incoming" / "Movies"
+        assert locate_source(root, "X") == tmp_path / "_incoming" / "Movies" / "X"
+        (root / "X").mkdir(parents=True)
+        assert locate_source(root, "X") == root / "X"
+        (tmp_path / "_incoming" / "Movies" / "X").mkdir(parents=True)
+        assert locate_source(root, "X") == tmp_path / "_incoming" / "Movies" / "X"

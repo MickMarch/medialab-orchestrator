@@ -279,3 +279,37 @@ class TestLockedSource:
         assert "RENAME" in (job.last_error or "")
         assert "Show.Name.S01E01.mkv" in (job.last_error or "")
         jellyfin_client.scan.assert_not_awaited()
+
+
+class TestStagingSource:
+    async def test_download_under_staging_is_placed_into_the_library(
+        self, worker, store, torrent_client, jellyfin_client, tmp_path, mocker
+    ):
+        mocker.patch.object(worker_module.config, "media_mount_path", str(tmp_path))
+        staged = tmp_path / "_incoming" / "Shows" / TV_RELEASE
+        staged.mkdir(parents=True)
+        (staged / "Show.Name.S01E01.mkv").write_text("ep")
+        _seed_tv_job(store)
+        _wire_downstream(torrent_client, jellyfin_client)
+
+        job = await worker.process(HASH)
+
+        assert job.status is JobStatus.DONE
+        episode = tmp_path / "Shows" / "Show Name (2019)" / "Season 01" / "Show Name S01E01.mkv"
+        assert episode.read_text() == "ep"
+        assert not staged.exists()
+
+    async def test_legacy_download_in_the_library_root_still_works(
+        self, worker, store, torrent_client, jellyfin_client, tmp_path, mocker
+    ):
+        mocker.patch.object(worker_module.config, "media_mount_path", str(tmp_path))
+        legacy = tmp_path / "Shows" / TV_RELEASE
+        legacy.mkdir(parents=True)
+        (legacy / "Show.Name.S01E01.mkv").write_text("ep")
+        _seed_tv_job(store)
+        _wire_downstream(torrent_client, jellyfin_client)
+
+        job = await worker.process(HASH)
+
+        assert job.status is JobStatus.DONE
+        assert not legacy.exists()

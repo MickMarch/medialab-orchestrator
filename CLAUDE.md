@@ -40,7 +40,8 @@ DOWNLOADING          qBittorrent working (read-through from /transfers on reques
 STOP_SEEDING         webhook or poll -> record the on-disk root (content_path basename) if the
                      webhook did not carry it, then torrent-downloader DELETE /transfers/{hash}
 RESOLVE_META         GET /search/tmdb/{type}/{tmdb_id} -> canonical title + year
-RENAME               per video file: show -> <root>/Title (Year)/Season NN/Title SNNEMM.ext
+RENAME               from <media>/_incoming/<subdir>/<root name> (legacy: the library root)
+                     per video file: show -> <root>/Title (Year)/Season NN/Title SNNEMM.ext
                      movie -> <root>/Title (Year)/Title (Year).ext (+ extras/); subs follow
 SCAN                 medialab-jellyfin POST /library/scan
 DONE

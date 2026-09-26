@@ -28,6 +28,7 @@ from medialab_orchestrator.services.rename import (
     RenameIncompleteError,
     apply_plan,
     list_files,
+    locate_source,
     plan_rename,
     source_root_name,
     usable_root_name,
@@ -163,7 +164,7 @@ class PipelineWorker:
         # The on-disk root recorded from qBittorrent's content path; the display
         # name is only a fallback for jobs that predate it.
         root_name = usable_root_name(job.source_path) or job.release_name
-        source = media_root / root_name
+        source = await asyncio.to_thread(locate_source, media_root, root_name)
         files = await asyncio.to_thread(list_files, source)
         plan = plan_rename(
             media_type=job.media_type,
@@ -172,6 +173,7 @@ class PipelineWorker:
             title=job.resolved_title or "",
             year=job.resolved_year or 0,
             files=files,
+            source=source,
         )
         # A retry after a completed move finds the source gone and the
         # destination present: that is done, not an error. Gone with no

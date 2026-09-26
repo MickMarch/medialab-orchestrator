@@ -22,7 +22,7 @@ from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClien
 from medialab_orchestrator.core.config import config
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.logger import app_logger
-from medialab_orchestrator.services.rename import usable_root_name
+from medialab_orchestrator.services.rename import locate_source, staging_root, usable_root_name
 from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob
 
 SCAN_UPDATE_DELETED = "Deleted"
@@ -60,7 +60,7 @@ def plan_deletion(job: PipelineJob) -> DeletionPlan:
         job.status in _TORRENT_MAY_REMAIN or job.seeding_removed_at is None
     )
     root_name = usable_root_name(job.source_path) or usable_root_name(job.release_name)
-    download_folder = str(root / root_name) if root_name else None
+    download_folder = str(locate_source(root, root_name)) if root_name else None
 
     placed: list[str] = list(job.placed_paths)
     scan_path: str | None = None
@@ -133,7 +133,11 @@ class DeletionService:
         if plan.torrent and job.torrent_hash:
             await self._torrent.remove_transfer(job.torrent_hash, delete_files=True)
         if plan.download_folder:
-            await asyncio.to_thread(_remove_path, Path(plan.download_folder), root)
+            folder = Path(plan.download_folder)
+            # The download folder sits under staging (or, for legacy jobs, under
+            # the library root); the guard is whichever root contains it.
+            base = staging_root(root) if _within(folder, staging_root(root)) else root
+            await asyncio.to_thread(_remove_path, folder, base)
         for placed in plan.placed_paths:
             path = Path(placed)
             await asyncio.to_thread(_remove_path, path, root)
