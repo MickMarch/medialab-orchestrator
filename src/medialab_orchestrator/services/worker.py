@@ -120,12 +120,14 @@ class PipelineWorker:
                 code=ErrorCode.INVALID_INPUT,
                 detail="Job reached RESOLVE_META without a torrent hash.",
             )
+        # The job already carries media_type and tmdb_id; the downloader's cached
+        # entry only adds the host path, which is informational and may be gone.
         info = await self._torrent.transfer_info(job.torrent_hash)
         title, year = await resolve_title_year(self._torrent, job.media_type, job.tmdb_id)
         return self._store.update_job(
             job.id,
             status=JobStatus.RENAME,
-            source_path=info["host_path"],
+            source_path=info.get("host_path") if info else None,
             resolved_title=title,
             resolved_year=year,
         )
