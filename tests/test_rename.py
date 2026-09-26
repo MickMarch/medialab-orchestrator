@@ -322,3 +322,18 @@ class TestApplyPlan:
         apply_plan(plan)
         apply_plan(plan)
         assert (tmp_path / "Show (2019)" / "Season 01" / "Show S01E01.mkv").read_text() == "ep1"
+
+
+class TestSourceRootName:
+    @pytest.mark.parametrize(
+        ("content_path", "expected"),
+        [
+            ("F:\\Media\\Movies\\Foo (2021) [5.1]", "Foo (2021) [5.1]"),
+            ("/media/Shows/Show.S01/", "Show.S01"),
+            ("F:\\Media\\Movies\\single.mkv", "single.mkv"),
+        ],
+    )
+    def test_basename_from_either_separator(self, content_path: str, expected: str):
+        from medialab_orchestrator.services.rename import source_root_name
+
+        assert source_root_name(content_path) == expected

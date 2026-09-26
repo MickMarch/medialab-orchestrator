@@ -66,6 +66,22 @@ class TestPost:
         assert captured["headers"]["x-api-key"] == KEY
         assert captured["headers"]["content-type"] == "application/json"
 
+    def test_passes_content_path_when_given(self, env, monkeypatch):
+        captured = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured["body"] = json.loads(request.data.decode())
+            return MagicMock(status=202)
+
+        monkeypatch.setattr(notify_complete.urllib.request, "urlopen", fake_urlopen)
+        rc = notify_complete.main([HASH, NAME, "F:\Media\Movies\Foo"])
+        assert rc == 0
+        assert captured["body"] == {
+            "hash": HASH,
+            "name": NAME,
+            "content_path": "F:\Media\Movies\Foo",
+        }
+
     def test_omits_key_header_when_unset(self, monkeypatch):
         monkeypatch.setenv("ORCHESTRATOR_URL", URL)
         monkeypatch.delenv("ORCHESTRATOR_API_KEY", raising=False)

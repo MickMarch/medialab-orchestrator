@@ -24,7 +24,12 @@ from medialab_orchestrator.core.config import config
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.services.metadata import resolve_title_year
-from medialab_orchestrator.services.rename import apply_plan, list_files, plan_rename
+from medialab_orchestrator.services.rename import (
+    apply_plan,
+    list_files,
+    plan_rename,
+    source_root_name,
+)
 from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob
 
 _REENTRY_STATUSES = frozenset(
@@ -106,10 +111,24 @@ class PipelineWorker:
                 code=ErrorCode.INVALID_INPUT,
                 detail="Job reached STOP_SEEDING without a torrent hash.",
             )
+        # Last chance to learn the on-disk root name before the torrent is gone.
+        fields: dict[str, object] = {
+            "status": JobStatus.RESOLVE_META,
+            "seeding_removed_at": _utc_now(),
+        }
+        if job.source_path is None:
+            content_path = await self._content_path_of(job.torrent_hash)
+            if content_path:
+                fields["source_path"] = source_root_name(content_path)
         await self._torrent.remove_transfer(job.torrent_hash)
-        return self._store.update_job(
-            job.id, status=JobStatus.RESOLVE_META, seeding_removed_at=_utc_now()
-        )
+        return self._store.update_job(job.id, **fields)
+
+    async def _content_path_of(self, torrent_hash: str) -> str | None:
+        payload = await self._torrent.transfers()
+        for transfer in (payload or {}).get("data", []):
+            if str(transfer.get("hash", "")).lower() == torrent_hash.lower():
+                return str(transfer.get("content_path") or "") or None
+        return None
 
     async def _step_resolve_meta(self, job: PipelineJob) -> PipelineJob:
         # The pipeline only runs once the completion webhook (which carries the
@@ -120,35 +139,47 @@ class PipelineWorker:
                 code=ErrorCode.INVALID_INPUT,
                 detail="Job reached RESOLVE_META without a torrent hash.",
             )
-        # The job already carries media_type and tmdb_id; the downloader's cached
-        # entry only adds the host path, which is informational and may be gone.
-        info = await self._torrent.transfer_info(job.torrent_hash)
+        # The job already carries media_type and tmdb_id; nothing else is needed
+        # from the downloader here.
         title, year = await resolve_title_year(self._torrent, job.media_type, job.tmdb_id)
         return self._store.update_job(
             job.id,
             status=JobStatus.RENAME,
-            source_path=info.get("host_path") if info else None,
             resolved_title=title,
             resolved_year=year,
         )
 
     async def _step_rename(self, job: PipelineJob) -> PipelineJob:
         media_root = Path(config.media_mount_path) / MEDIA_TYPE_SUBDIRS[job.media_type]
-        files = await asyncio.to_thread(list_files, media_root / job.release_name)
+        # The on-disk root recorded from qBittorrent's content path; the display
+        # name is only a fallback for jobs that predate it.
+        root_name = job.source_path or job.release_name
+        source = media_root / root_name
+        files = await asyncio.to_thread(list_files, source)
         plan = plan_rename(
             media_type=job.media_type,
             media_root=media_root,
-            release_name=job.release_name,
+            release_name=root_name,
             title=job.resolved_title or "",
             year=job.resolved_year or 0,
             files=files,
         )
+        # A retry after a completed move finds the source gone and the
+        # destination present: that is done, not an error. Gone with no
+        # destination either is a real problem, never a silent success.
+        dest_exists = await asyncio.to_thread(plan.scan_dir.exists)
+        if not files and not source.exists() and not dest_exists:
+            raise AppException(
+                status_code=fastapi_status.HTTP_404_NOT_FOUND,
+                code=ErrorCode.SOURCE_NOT_FOUND,
+                detail=f"Download folder not found: {source}",
+            )
         await asyncio.to_thread(apply_plan, plan)
         return self._store.update_job(job.id, status=JobStatus.SCAN, dest_path=str(plan.scan_dir))
 
     async def _step_scan(self, job: PipelineJob) -> PipelineJob:
         await self._jellyfin.scan(path=job.dest_path or "")
-        return self._store.update_job(job.id, status=JobStatus.DONE)
+        return self._store.update_job(job.id, status=JobStatus.DONE, last_error=None)
 
 
 def _utc_now() -> str:

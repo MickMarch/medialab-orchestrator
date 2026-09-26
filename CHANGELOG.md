@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- RENAME renames from qBittorrent's real on-disk root (`content_path`, via
+  the relay's new `%F` argument or the transfer list at STOP_SEEDING) instead
+  of the display name, which differs from the folder for most releases. A
+  missing download folder now fails the job with `SOURCE_NOT_FOUND` instead of
+  reporting DONE having moved nothing; a retry after a completed move still
+  passes. `last_error` is cleared when a job reaches DONE. RESOLVE_META no
+  longer calls the downloader's per-hash info endpoint.
+
 ## [0.8.1] - 2026-09-25
 
 ### Fixed
