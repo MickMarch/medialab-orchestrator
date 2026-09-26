@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-25
+
 ### Changed
 
 - RENAME places every download to Jellyfin's documented layout: movies as
