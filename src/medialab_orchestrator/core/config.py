@@ -26,5 +26,10 @@ class AppConfig(BaseSettings):
     media_mount_path: str = Field(default="/media")
     db_path: str = Field(default="./data/orchestrator.db")
 
+    # Health poll (stuck-download remediation). 0 disables the poll.
+    health_poll_interval_seconds: float = Field(default=300.0)
+    auto_resume_max: int = Field(default=3)
+    auto_retry_max: int = Field(default=2)
+
 
 config: AppConfig = AppConfig()

@@ -13,6 +13,7 @@ episode per file. Moves go through the shared media mount, never a host shell.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import status as fastapi_status
@@ -25,6 +26,15 @@ from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.services.metadata import resolve_title_year
 from medialab_orchestrator.services.rename import apply_plan, list_files, plan_rename
 from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob
+
+_REENTRY_STATUSES = frozenset(
+    {
+        JobStatus.DOWNLOAD_SUBMITTED,
+        JobStatus.DOWNLOADING,
+        JobStatus.FAILED,
+        JobStatus.NEEDS_ATTENTION,
+    }
+)
 
 
 class PipelineWorker:
@@ -51,7 +61,7 @@ class PipelineWorker:
         job = self._store.get_job_by_hash(torrent_hash)
         # A freshly-arrived webhook job may still be DOWNLOAD_SUBMITTED /
         # DOWNLOADING; the first pipeline step is STOP_SEEDING.
-        if job.status in (JobStatus.DOWNLOAD_SUBMITTED, JobStatus.DOWNLOADING, JobStatus.FAILED):
+        if job.status in _REENTRY_STATUSES:
             job = self._reenter(job)
 
         try:
@@ -87,8 +97,19 @@ class PipelineWorker:
         return await step(self, job)
 
     async def _step_stop_seeding(self, job: PipelineJob) -> PipelineJob:
-        await self._torrent.stop_seeding()
-        return self._store.update_job(job.id, status=JobStatus.RESOLVE_META)
+        # Remove the torrent from qBittorrent (files kept): once the pipeline owns
+        # the files nothing should keep a handle on the download folder, which
+        # RENAME is about to empty. Already-removed (404) counts as done.
+        if job.torrent_hash is None:
+            raise AppException(
+                status_code=fastapi_status.HTTP_409_CONFLICT,
+                code=ErrorCode.INVALID_INPUT,
+                detail="Job reached STOP_SEEDING without a torrent hash.",
+            )
+        await self._torrent.remove_transfer(job.torrent_hash)
+        return self._store.update_job(
+            job.id, status=JobStatus.RESOLVE_META, seeding_removed_at=_utc_now()
+        )
 
     async def _step_resolve_meta(self, job: PipelineJob) -> PipelineJob:
         # The pipeline only runs once the completion webhook (which carries the
@@ -126,6 +147,10 @@ class PipelineWorker:
     async def _step_scan(self, job: PipelineJob) -> PipelineJob:
         await self._jellyfin.scan(path=job.dest_path or "")
         return self._store.update_job(job.id, status=JobStatus.DONE)
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 _STEPS = {

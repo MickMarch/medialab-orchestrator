@@ -1,5 +1,7 @@
 """Application entry point: FastAPI app, lifespan context, uvicorn launch helpers."""
 
+import asyncio
+import contextlib
 import importlib.metadata
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -25,9 +27,20 @@ from medialab_orchestrator.routers import gateway, search, system, webhooks
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Build the long-lived AppContext (store, clients, worker) at startup."""
-    app.state.context = build_context()
+    context = build_context()
+    app.state.context = context
     app_logger.info("medialab-orchestrator context ready.")
-    yield
+    poll_task = None
+    if context.poller is not None and config.health_poll_interval_seconds > 0:
+        poll_task = asyncio.create_task(context.poller.run(config.health_poll_interval_seconds))
+        app_logger.info("Health poll every %.0fs.", config.health_poll_interval_seconds)
+    try:
+        yield
+    finally:
+        if poll_task is not None:
+            poll_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await poll_task
 
 
 app: FastAPI = FastAPI(

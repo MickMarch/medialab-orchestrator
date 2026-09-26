@@ -72,7 +72,8 @@ class TestHappyPath:
         assert job.resolved_title == "Show Name"
         assert job.resolved_year == 2019
         assert job.dest_path == str(tmp_path / "Shows" / "Show Name (2019)")
-        torrent_client.stop_seeding.assert_awaited_once()
+        torrent_client.remove_transfer.assert_awaited_once_with(HASH)
+        assert job.seeding_removed_at is not None
         # The library root is registered once at setup, not per-download, so the
         # pipeline scans the already-covered path rather than registering it.
         jellyfin_client.register_path.assert_not_awaited()
@@ -117,7 +118,7 @@ class TestFailure:
         jellyfin_client: AsyncMock,
     ):
         _seed_tv_job(store)
-        torrent_client.stop_seeding.side_effect = AppException(
+        torrent_client.remove_transfer.side_effect = AppException(
             status_code=502, code=ErrorCode.DOWNSTREAM_UNAVAILABLE, detail="boom"
         )
         job = await worker.process(HASH)
@@ -151,4 +152,4 @@ class TestRetry:
         store.update_job(store.get_job_by_hash(HASH).id, release_name=TV_RELEASE)
         recovered = await worker.process(HASH)
         assert recovered.status is JobStatus.DONE
-        assert torrent_client.stop_seeding.await_count == 2  # re-ran the early step
+        assert torrent_client.remove_transfer.await_count == 2  # re-ran the early step

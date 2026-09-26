@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from medialab_orchestrator.core.deps import AppContext, get_context
 from medialab_orchestrator.core.limiter import limiter
+from medialab_orchestrator.store import JobStatus
 
 router = APIRouter(tags=["System"])
 
@@ -23,6 +24,7 @@ class HealthResponse(BaseModel):
     status: str
     uptime_seconds: float
     downstream: DownstreamHealth
+    needs_attention: int = 0
 
 
 @router.get(
@@ -42,4 +44,5 @@ async def health_check(request: Request, ctx: AppContext = Depends(get_context))
         status="online",
         uptime_seconds=round(time.time() - _START_TIME, 2),
         downstream=DownstreamHealth(torrent_downloader=torrent_ok, medialab_jellyfin=jellyfin_ok),
+        needs_attention=len(ctx.store.list_jobs(status=JobStatus.NEEDS_ATTENTION)),
     )
