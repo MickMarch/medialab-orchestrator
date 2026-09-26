@@ -25,6 +25,7 @@ from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.services.metadata import resolve_title_year
 from medialab_orchestrator.services.rename import (
+    RenameIncompleteError,
     apply_plan,
     list_files,
     plan_rename,
@@ -181,7 +182,14 @@ class PipelineWorker:
                 code=ErrorCode.SOURCE_NOT_FOUND,
                 detail=f"Download folder not found: {source}",
             )
-        placed = await asyncio.to_thread(apply_plan, plan)
+        try:
+            placed = await asyncio.to_thread(apply_plan, plan)
+        except RenameIncompleteError as exc:
+            raise AppException(
+                status_code=fastapi_status.HTTP_409_CONFLICT,
+                code=ErrorCode.RENAME_INCOMPLETE,
+                detail=str(exc),
+            ) from exc
         return self._store.update_job(
             job.id,
             status=JobStatus.SCAN,

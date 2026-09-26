@@ -16,6 +16,7 @@ placement rules are unit-testable with no disk; ``apply_plan`` does the I/O.
 
 from __future__ import annotations
 
+import contextlib
 import re
 import shutil
 from collections.abc import Sequence
@@ -42,6 +43,11 @@ _WHITESPACE = re.compile(r"\s+")
 
 class EpisodeUnparseableError(Exception):
     """Raised when a show's video file name yields no season and episode."""
+
+
+class RenameIncompleteError(Exception):
+    """Raised when video files remain in the source after the moves: a locked
+    file kept its original in place, so the job must not report success."""
 
 
 @dataclass(frozen=True)
@@ -195,10 +201,40 @@ def apply_plan(plan: RenamePlan) -> list[Path]:
     delete removes, exactly.
     """
     for src, dest in plan.moves:
-        if dest.exists() or not src.exists():
+        if not src.exists():
             continue
+        if dest.exists():
+            # An interrupted move: the copy landed but the locked source stayed.
+            # Same size means the copy is complete, so only the source goes;
+            # otherwise the destination is a partial copy and is redone.
+            if dest.stat().st_size == src.stat().st_size:
+                _unlink_quietly(src)
+                continue
+            dest.unlink()
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(src), str(dest))
-    if plan.source.is_dir() and not any(_is_video(f) for f in list_files(plan.source)):
+        try:
+            shutil.move(str(src), str(dest))
+        except PermissionError:
+            # Windows: the copy may have landed while the source is locked (a
+            # scanner or Jellyfin reading it). Leave both; the check below fails
+            # the job so a retry finishes it once the lock clears.
+            continue
+    leftover = (
+        [f.path.name for f in list_files(plan.source) if _is_video(f)]
+        if plan.source.is_dir()
+        else []
+    )
+    if leftover:
+        raise RenameIncompleteError(
+            "Video still present in the download folder after the move (locked?): "
+            + ", ".join(leftover)
+        )
+    if plan.source.is_dir():
         shutil.rmtree(plan.source)
     return [dest for _, dest in plan.moves if dest.exists()]
+
+
+def _unlink_quietly(path: Path) -> None:
+    # A still-locked source is reported by the leftover check in apply_plan.
+    with contextlib.suppress(PermissionError):
+        path.unlink()

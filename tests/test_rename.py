@@ -1,14 +1,17 @@
 """Rename planning to Jellyfin's layout (pure, no disk) and the mover (tmp_path)."""
 
+import shutil
 from pathlib import Path
 
 import pytest
 from medialab_contracts import MediaType
 
 from medialab_orchestrator.core.errors import AppException, ErrorCode
+from medialab_orchestrator.services import rename as rename_module
 from medialab_orchestrator.services.rename import (
     EpisodeUnparseableError,
     MediaFile,
+    RenameIncompleteError,
     RenamePlan,
     apply_plan,
     episode_stem,
@@ -295,15 +298,15 @@ class TestApplyPlan:
         assert (season / "Show S01E01.en.srt").read_text() == "sub"
         assert not plan.source.exists()
 
-    def test_existing_destination_is_skipped_and_source_kept(self, tmp_path: Path):
+    def test_partial_destination_is_replaced_from_source(self, tmp_path: Path):
         plan = self._plan(tmp_path)
         season = tmp_path / "Show (2019)" / "Season 01"
         season.mkdir(parents=True)
-        (season / "Show S01E01.mkv").write_text("already")
+        (season / "Show S01E01.mkv").write_text("partial-copy-of-different-size")
         apply_plan(plan)
-        assert (season / "Show S01E01.mkv").read_text() == "already"
-        # The video was not moved, so the source still holds a video and stays.
-        assert (plan.source / "Show.S01E01.mkv").exists()
+        # A destination of a different size is an interrupted copy: redone.
+        assert (season / "Show S01E01.mkv").read_text() == "ep1"
+        assert not plan.source.exists()
 
     def test_missing_source_file_is_skipped(self, tmp_path: Path):
         plan = self._plan(tmp_path)
@@ -311,10 +314,12 @@ class TestApplyPlan:
         apply_plan(plan)
         assert (tmp_path / "Show (2019)" / "Season 01" / "Show S01E01.mkv").exists()
 
-    def test_source_with_leftover_video_is_kept(self, tmp_path: Path):
+    def test_unplanned_video_left_in_source_fails_loudly(self, tmp_path: Path):
         plan = self._plan(tmp_path)
         (plan.source / "unplanned.mkv").write_text("left")
-        apply_plan(plan)
+        with pytest.raises(RenameIncompleteError) as exc:
+            apply_plan(plan)
+        assert "unplanned.mkv" in str(exc.value)
         assert (plan.source / "unplanned.mkv").exists()
 
     def test_rerun_is_a_noop(self, tmp_path: Path):
@@ -337,3 +342,53 @@ class TestSourceRootName:
         from medialab_orchestrator.services.rename import source_root_name
 
         assert source_root_name(content_path) == expected
+
+
+class TestInterruptedMove:
+    """A move that copied the file but could not remove a locked source."""
+
+    def _plan(self, tmp_path: Path) -> RenamePlan:
+        source = tmp_path / "Movie.2021-GRP"
+        source.mkdir()
+        (source / "Movie.2021-GRP.mkv").write_text("full copy")
+        return plan_rename(
+            media_type=MediaType.MOVIE,
+            media_root=tmp_path,
+            release_name=source.name,
+            title="Movie",
+            year=2021,
+            files=list_files(source),
+        )
+
+    def test_same_size_leftover_source_is_removed(self, tmp_path: Path):
+        plan = self._plan(tmp_path)
+        dest = tmp_path / "Movie (2021)" / "Movie (2021).mkv"
+        dest.parent.mkdir(parents=True)
+        dest.write_text("full copy")
+        apply_plan(plan)
+        assert dest.read_text() == "full copy"
+        assert not plan.source.exists()
+
+    def test_different_size_destination_is_replaced_from_source(self, tmp_path: Path):
+        plan = self._plan(tmp_path)
+        dest = tmp_path / "Movie (2021)" / "Movie (2021).mkv"
+        dest.parent.mkdir(parents=True)
+        dest.write_text("partial")
+        apply_plan(plan)
+        assert dest.read_text() == "full copy"
+        assert not plan.source.exists()
+
+    def test_video_left_behind_raises_rename_incomplete(self, tmp_path: Path, monkeypatch):
+        plan = self._plan(tmp_path)
+
+        def locked_move(src, dst):
+            # Windows: the copy lands, then the locked source cannot be removed.
+            shutil.copy2(src, dst)
+            raise PermissionError(13, "Permission denied", src)
+
+        monkeypatch.setattr(rename_module.shutil, "move", locked_move)
+        with pytest.raises(RenameIncompleteError) as exc:
+            apply_plan(plan)
+        assert "Movie.2021-GRP.mkv" in str(exc.value)
+        assert (tmp_path / "Movie (2021)" / "Movie (2021).mkv").exists()
+        assert (plan.source / "Movie.2021-GRP.mkv").exists()

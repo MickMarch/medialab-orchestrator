@@ -256,3 +256,26 @@ class TestSourceRoot:
 
         assert job.status is JobStatus.DONE
         assert job.last_error is None
+
+
+class TestLockedSource:
+    async def test_locked_source_fails_the_job_instead_of_done(
+        self, worker, store, torrent_client, jellyfin_client, tmp_path, mocker
+    ):
+        mocker.patch.object(worker_module.config, "media_mount_path", str(tmp_path))
+        (tmp_path / "Shows" / TV_RELEASE).mkdir(parents=True)
+        (tmp_path / "Shows" / TV_RELEASE / "Show.Name.S01E01.mkv").write_text("ep")
+        _seed_tv_job(store)
+        _wire_downstream(torrent_client, jellyfin_client)
+        mocker.patch.object(
+            worker_module,
+            "apply_plan",
+            side_effect=worker_module.RenameIncompleteError("still present: Show.Name.S01E01.mkv"),
+        )
+
+        job = await worker.process(HASH)
+
+        assert job.status is JobStatus.FAILED
+        assert "RENAME" in (job.last_error or "")
+        assert "Show.Name.S01E01.mkv" in (job.last_error or "")
+        jellyfin_client.scan.assert_not_awaited()
