@@ -35,7 +35,7 @@ COMPLETE_STATES = frozenset(
 
 _COMPLETE_PROGRESS = 1.0
 _AWAITING_COMPLETION = frozenset({JobStatus.DOWNLOAD_SUBMITTED, JobStatus.DOWNLOADING})
-_TERMINAL = frozenset({JobStatus.DONE, JobStatus.NEEDS_ATTENTION})
+_TERMINAL = frozenset({JobStatus.DONE, JobStatus.NEEDS_ATTENTION, JobStatus.DELETED})
 
 
 def is_complete(transfer: dict[str, Any]) -> bool:

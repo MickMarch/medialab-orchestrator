@@ -186,10 +186,14 @@ def plan_rename(
     return RenamePlan(source=source, scan_dir=scan_dir, moves=tuple(moves))
 
 
-def apply_plan(plan: RenamePlan) -> None:
-    """Execute the moves. Idempotent: existing destinations and missing sources
-    are skipped, so a retry after a partial run finishes the remainder. The
-    source folder is removed only once it holds no video file."""
+def apply_plan(plan: RenamePlan) -> list[Path]:
+    """Execute the moves and return every destination that now exists.
+
+    Idempotent: existing destinations and missing sources are skipped, so a
+    retry after a partial run finishes the remainder. The source folder is
+    removed only once it holds no video file. The returned list is what a later
+    delete removes, exactly.
+    """
     for src, dest in plan.moves:
         if dest.exists() or not src.exists():
             continue
@@ -197,3 +201,4 @@ def apply_plan(plan: RenamePlan) -> None:
         shutil.move(str(src), str(dest))
     if plan.source.is_dir() and not any(_is_video(f) for f in list_files(plan.source)):
         shutil.rmtree(plan.source)
+    return [dest for _, dest in plan.moves if dest.exists()]

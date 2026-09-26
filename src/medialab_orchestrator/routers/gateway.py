@@ -11,11 +11,13 @@ from medialab_orchestrator.core.limiter import RATE_LIMIT_DEFAULT, limiter
 from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.schemas.errors import ErrorResponse
 from medialab_orchestrator.schemas.jobs import (
+    DeletionPlanView,
     DownloadRequest,
     DownloadResponse,
     JobsResponse,
     JobView,
 )
+from medialab_orchestrator.services.deletion import DeletionService, plan_deletion
 from medialab_orchestrator.services.metadata import resolve_title_year
 from medialab_orchestrator.store import JobNotFoundError, JobStatus
 
@@ -127,6 +129,57 @@ async def get_job(request: Request, job_id: str, ctx: AppContext = Depends(get_c
             detail=f"No job {job_id}.",
         ) from exc
     return JobView.from_job(job)
+
+
+def _job_or_404(ctx: AppContext, job_id: str):
+    try:
+        return ctx.store.get_job_by_id(job_id)
+    except JobNotFoundError as exc:
+        raise AppException(
+            status_code=fastapi_status.HTTP_404_NOT_FOUND,
+            code=ErrorCode.JOB_NOT_FOUND,
+            detail=f"No job {job_id}.",
+        ) from exc
+
+
+@router.get(
+    "/jobs/{job_id}/deletion-plan",
+    response_model=DeletionPlanView,
+    status_code=fastapi_status.HTTP_200_OK,
+    summary="What deleting this job would remove. No side effects.",
+    responses={**_COMMON_ERRORS, 404: {"model": ErrorResponse, "description": "No such job."}},
+)
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def deletion_plan(
+    request: Request, job_id: str, ctx: AppContext = Depends(get_context)
+) -> DeletionPlanView:
+    plan = plan_deletion(_job_or_404(ctx, job_id))
+    return DeletionPlanView(job_id=job_id, **plan.__dict__)
+
+
+@router.delete(
+    "/jobs/{job_id}",
+    response_model=JobView,
+    status_code=fastapi_status.HTTP_200_OK,
+    summary="Undo a download: torrent, files, placed library files, Jellyfin. Job marked DELETED.",
+    responses={
+        **_COMMON_ERRORS,
+        404: {"model": ErrorResponse, "description": "No such job."},
+        409: {
+            "model": ErrorResponse,
+            "description": "Refused; the reason says what to do by hand.",
+        },
+    },
+)
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def delete_job(
+    request: Request, job_id: str, ctx: AppContext = Depends(get_context)
+) -> JobView:
+    job = _job_or_404(ctx, job_id)
+    service = DeletionService(
+        store=ctx.store, torrent_client=ctx.torrent, jellyfin_client=ctx.jellyfin
+    )
+    return JobView.from_job(await service.execute(job))
 
 
 @router.post(

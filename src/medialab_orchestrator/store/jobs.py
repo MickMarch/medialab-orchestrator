@@ -7,6 +7,7 @@ resumes from the last committed state.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 import uuid
@@ -39,6 +40,7 @@ class JobStatus(str, Enum):
     DONE = "DONE"
     FAILED = "FAILED"
     NEEDS_ATTENTION = "NEEDS_ATTENTION"
+    DELETED = "DELETED"
 
 
 class PipelineJob(BaseModel):
@@ -64,6 +66,8 @@ class PipelineJob(BaseModel):
     attempts: int = 0
     remediations: int = 0
     seeding_removed_at: str | None = None
+    placed_paths: list[str] = []
+    deleted_at: str | None = None
     created_at: str
     updated_at: str
 
@@ -87,6 +91,8 @@ CREATE TABLE IF NOT EXISTS pipeline_job (
     attempts       INTEGER NOT NULL DEFAULT 0,
     remediations   INTEGER NOT NULL DEFAULT 0,
     seeding_removed_at TEXT,
+    placed_paths   TEXT,
+    deleted_at     TEXT,
     created_at     TEXT    NOT NULL,
     updated_at     TEXT    NOT NULL
 );
@@ -109,6 +115,8 @@ _UPDATABLE_COLUMNS = frozenset(
         "attempts",
         "remediations",
         "seeding_removed_at",
+        "placed_paths",
+        "deleted_at",
     }
 )
 
@@ -117,6 +125,8 @@ _UPDATABLE_COLUMNS = frozenset(
 _ADDED_COLUMNS: dict[str, str] = {
     "remediations": "INTEGER NOT NULL DEFAULT 0",
     "seeding_removed_at": "TEXT",
+    "placed_paths": "TEXT",
+    "deleted_at": "TEXT",
 }
 
 
@@ -278,6 +288,8 @@ class JobStore:
             return self.get_job_by_id(job_id)
 
         normalised = {k: _unwrap(v) for k, v in fields.items()}
+        if isinstance(normalised.get("placed_paths"), list):
+            normalised["placed_paths"] = json.dumps(normalised["placed_paths"])
         assignments = ", ".join(f"{col} = ?" for col in normalised)
         params = [*normalised.values(), _now(), job_id]
         with self._cursor() as cur:
@@ -311,6 +323,8 @@ def _row_to_job(row: sqlite3.Row) -> PipelineJob:
         attempts=row["attempts"],
         remediations=row["remediations"],
         seeding_removed_at=row["seeding_removed_at"],
+        placed_paths=json.loads(row["placed_paths"]) if row["placed_paths"] else [],
+        deleted_at=row["deleted_at"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `GET /jobs/{id}/deletion-plan` and `DELETE /jobs/{id}`: undo a download at
+  any stage (torrent and its data via the downloader, the download folder,
+  exactly the files RENAME placed, a Jellyfin `Deleted` notice); the job is
+  kept as `DELETED`. RENAME records `placed_paths`; jobs that predate it are
+  refused for shows (folder named) and fall back to the movie folder for
+  movies. `deleted_at` column.
+
 ## [0.9.0] - 2026-09-25
 
 ### Fixed

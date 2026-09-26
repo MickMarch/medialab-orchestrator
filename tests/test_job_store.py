@@ -181,3 +181,16 @@ class TestAddedColumns:
         job = store.create_job(release_name="x", media_type=MediaType.MOVIE, tmdb_id=1)
         store.update_job(job.id, status=JobStatus.NEEDS_ATTENTION, last_error="why")
         assert [j.id for j in store.list_jobs(status=JobStatus.NEEDS_ATTENTION)] == [job.id]
+
+
+class TestPlacedPaths:
+    def test_list_round_trips_as_json(self, store: JobStore):
+        job = store.create_job(release_name="x", media_type=MediaType.MOVIE, tmdb_id=1)
+        updated = store.update_job(job.id, placed_paths=["/media/Movies/A (2020)/A (2020).mkv"])
+        assert updated.placed_paths == ["/media/Movies/A (2020)/A (2020).mkv"]
+        assert store.get_job_by_id(job.id).placed_paths == updated.placed_paths
+
+    def test_defaults_to_empty(self, store: JobStore):
+        job = store.create_job(release_name="x", media_type=MediaType.MOVIE, tmdb_id=1)
+        assert job.placed_paths == []
+        assert job.deleted_at is None

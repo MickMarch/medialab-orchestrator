@@ -33,9 +33,9 @@ class JellyfinClient(DownstreamClient):
             },
         )
 
-    async def scan(self, *, path: str) -> Any:
+    async def scan(self, *, path: str, update_type: str = _SCAN_UPDATE_TYPE_CREATED) -> Any:
         # Idempotent: a repeat scan of the same path is safe.
         return await self.post(
             f"{API_PREFIX}/library/scan",
-            json={"path": path, "update_type": _SCAN_UPDATE_TYPE_CREATED},
+            json={"path": path, "update_type": update_type},
         )

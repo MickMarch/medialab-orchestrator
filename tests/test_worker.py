@@ -74,6 +74,9 @@ class TestHappyPath:
         assert job.resolved_title == "Show Name"
         assert job.resolved_year == 2019
         assert job.dest_path == str(tmp_path / "Shows" / "Show Name (2019)")
+        assert job.placed_paths == [
+            str(tmp_path / "Shows" / "Show Name (2019)" / "Season 01" / "Show Name S01E01.mkv")
+        ]
         torrent_client.remove_transfer.assert_awaited_once_with(HASH)
         assert job.seeding_removed_at is not None
         # The library root is registered once at setup, not per-download, so the
@@ -120,6 +123,7 @@ class TestFailure:
         jellyfin_client: AsyncMock,
     ):
         _seed_tv_job(store)
+        torrent_client.transfers.return_value = {"data": []}
         torrent_client.remove_transfer.side_effect = AppException(
             status_code=502, code=ErrorCode.DOWNSTREAM_UNAVAILABLE, detail="boom"
         )

@@ -40,6 +40,7 @@ _REENTRY_STATUSES = frozenset(
         JobStatus.NEEDS_ATTENTION,
     }
 )
+_UNRETRYABLE = frozenset({JobStatus.DELETED})
 
 
 class PipelineWorker:
@@ -64,6 +65,12 @@ class PipelineWorker:
     async def process(self, torrent_hash: str) -> PipelineJob:
         """Advance the job from its current state to DONE, or FAILED on error."""
         job = self._store.get_job_by_hash(torrent_hash)
+        if job.status in _UNRETRYABLE:
+            raise AppException(
+                status_code=fastapi_status.HTTP_409_CONFLICT,
+                code=ErrorCode.INVALID_INPUT,
+                detail=f"Job {job.id} was deleted; nothing to run.",
+            )
         # A freshly-arrived webhook job may still be DOWNLOAD_SUBMITTED /
         # DOWNLOADING; the first pipeline step is STOP_SEEDING.
         if job.status in _REENTRY_STATUSES:
@@ -174,8 +181,13 @@ class PipelineWorker:
                 code=ErrorCode.SOURCE_NOT_FOUND,
                 detail=f"Download folder not found: {source}",
             )
-        await asyncio.to_thread(apply_plan, plan)
-        return self._store.update_job(job.id, status=JobStatus.SCAN, dest_path=str(plan.scan_dir))
+        placed = await asyncio.to_thread(apply_plan, plan)
+        return self._store.update_job(
+            job.id,
+            status=JobStatus.SCAN,
+            dest_path=str(plan.scan_dir),
+            placed_paths=[str(p) for p in placed],
+        )
 
     async def _step_scan(self, job: PipelineJob) -> PipelineJob:
         await self._jellyfin.scan(path=job.dest_path or "")
