@@ -392,3 +392,20 @@ class TestInterruptedMove:
         assert "Movie.2021-GRP.mkv" in str(exc.value)
         assert (tmp_path / "Movie (2021)" / "Movie (2021).mkv").exists()
         assert (plan.source / "Movie.2021-GRP.mkv").exists()
+
+
+class TestUsableRootName:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("Movie.2021-GRP", "Movie.2021-GRP"),
+            ("F:\Media\Movies", None),
+            ("/media/Movies", None),
+            ("", None),
+            (None, None),
+        ],
+    )
+    def test_only_a_bare_name_is_usable(self, value, expected):
+        from medialab_orchestrator.services.rename import usable_root_name
+
+        assert usable_root_name(value) == expected

@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A legacy `source_path` holding a host root path (jobs from before the
+  content_path fix) is ignored instead of being joined onto the media root in
+  RENAME and in the deletion plan.
+
 ## [0.10.0] - 2026-09-26
 
 ### Fixed

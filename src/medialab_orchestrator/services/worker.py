@@ -30,6 +30,7 @@ from medialab_orchestrator.services.rename import (
     list_files,
     plan_rename,
     source_root_name,
+    usable_root_name,
 )
 from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob
 
@@ -161,7 +162,7 @@ class PipelineWorker:
         media_root = Path(config.media_mount_path) / MEDIA_TYPE_SUBDIRS[job.media_type]
         # The on-disk root recorded from qBittorrent's content path; the display
         # name is only a fallback for jobs that predate it.
-        root_name = job.source_path or job.release_name
+        root_name = usable_root_name(job.source_path) or job.release_name
         source = media_root / root_name
         files = await asyncio.to_thread(list_files, source)
         plan = plan_rename(

@@ -185,3 +185,23 @@ class TestExecute:
         )
         with pytest.raises(AppException):
             await service.execute(job)
+
+
+class TestLegacySourcePath:
+    def test_host_path_in_source_path_is_not_joined_into_the_plan(self, store, media):
+        # Jobs from before the content_path fix stored the downloader's host root here.
+        job = _job(
+            store,
+            JobStatus.DONE,
+            seeding_removed_at="t",
+            source_path="F:\Media\Movies",
+            dest_path=str(media / "Movies" / "Movie (2021)"),
+        )
+        plan = plan_deletion(job)
+        # Falls back to the release name; the host path never reaches the plan.
+        assert plan.download_folder == str(media / "Movies" / "Movie.2021.1080p")
+        assert "F:" not in plan.download_folder
+
+    def test_plain_folder_name_is_used(self, store, media):
+        job = _job(store, JobStatus.DOWNLOADING, source_path="Movie.2021-GRP")
+        assert plan_deletion(job).download_folder == str(media / "Movies" / "Movie.2021-GRP")
