@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- RENAME reads the download from the staging directory
+  (`<media>/_incoming/<Movies|Shows>`, contracts `STAGING_SUBDIR`) and places it
+  into the library root; a download still sitting in the library root (from
+  before staging) is found there for one release. The deletion plan names the
+  staging folder.
+
 ### Fixed
 
 - A legacy `source_path` holding a host root path (jobs from before the

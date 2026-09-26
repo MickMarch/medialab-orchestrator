@@ -41,7 +41,7 @@ class TestPlan:
         job = _job(store, JobStatus.DOWNLOADING)
         plan = plan_deletion(job)
         assert plan.torrent is True
-        assert plan.download_folder == str(media / "Movies" / "Movie.2021.1080p")
+        assert plan.download_folder == str(media / "_incoming" / "Movies" / "Movie.2021.1080p")
         assert plan.placed_paths == []
         assert plan.scan_path is None
         assert plan.refused is None
@@ -50,7 +50,7 @@ class TestPlan:
         job = _job(store, JobStatus.RENAME, seeding_removed_at="t", source_path="Movie.2021-GRP")
         plan = plan_deletion(job)
         assert plan.torrent is False
-        assert plan.download_folder == str(media / "Movies" / "Movie.2021-GRP")
+        assert plan.download_folder == str(media / "_incoming" / "Movies" / "Movie.2021-GRP")
 
     def test_done_job_uses_recorded_placed_paths(self, store, media):
         placed = [str(media / "Shows" / "Show (2019)" / "Season 01" / "Show S01E01.mkv")]
@@ -199,9 +199,11 @@ class TestLegacySourcePath:
         )
         plan = plan_deletion(job)
         # Falls back to the release name; the host path never reaches the plan.
-        assert plan.download_folder == str(media / "Movies" / "Movie.2021.1080p")
+        assert plan.download_folder == str(media / "_incoming" / "Movies" / "Movie.2021.1080p")
         assert "F:" not in plan.download_folder
 
     def test_plain_folder_name_is_used(self, store, media):
         job = _job(store, JobStatus.DOWNLOADING, source_path="Movie.2021-GRP")
-        assert plan_deletion(job).download_folder == str(media / "Movies" / "Movie.2021-GRP")
+        assert plan_deletion(job).download_folder == str(
+            media / "_incoming" / "Movies" / "Movie.2021-GRP"
+        )

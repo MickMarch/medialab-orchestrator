@@ -25,7 +25,7 @@ from pathlib import Path
 
 import PTN
 from fastapi import status as fastapi_status
-from medialab_contracts import MediaType
+from medialab_contracts import STAGING_SUBDIR, MediaType
 
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 
@@ -67,6 +67,23 @@ def source_root_name(content_path: str) -> str:
     """The on-disk root name (file or folder) from qBittorrent's content path,
     whichever separator the host used."""
     return content_path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+
+
+def staging_root(media_root: Path) -> Path:
+    """Where qBittorrent lands downloads for this library: beside it, never in it."""
+    return media_root.parent / STAGING_SUBDIR / media_root.name
+
+
+def locate_source(media_root: Path, root_name: str) -> Path:
+    """The download folder for ``root_name``: under staging, or, for downloads
+    that predate the staging directory, under the library root itself."""
+    staged = staging_root(media_root) / root_name
+    if staged.exists():
+        return staged
+    legacy = media_root / root_name
+    if legacy.exists():
+        return legacy
+    return staged
 
 
 def usable_root_name(value: str | None) -> str | None:
@@ -194,9 +211,14 @@ def plan_rename(
     title: str,
     year: int,
     files: Sequence[MediaFile],
+    source: Path | None = None,
 ) -> RenamePlan:
-    """Compute every file move for a download without touching the filesystem."""
-    source = media_root / release_name
+    """Compute every file move for a download without touching the filesystem.
+
+    ``source`` defaults to the download folder under staging; the worker passes
+    the located folder (staging, or the library root for legacy downloads).
+    """
+    source = source if source is not None else staging_root(media_root) / release_name
     if media_type is MediaType.MOVIE:
         scan_dir, moves = _plan_movie(media_root=media_root, title=title, year=year, files=files)
     else:
