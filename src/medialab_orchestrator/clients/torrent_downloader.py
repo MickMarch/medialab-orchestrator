@@ -48,7 +48,11 @@ class TorrentDownloaderClient(DownstreamClient):
         return await self.get(f"{API_PREFIX}/transfers")
 
     async def transfer_info(self, torrent_hash: str) -> Any:
-        return await self.get(f"{API_PREFIX}/transfers/{torrent_hash}/info")
+        # Informational: the downloader's diskcache entry for this hash. It is
+        # gone after a cache wipe, so 404 returns None rather than failing.
+        return await self.request(
+            "GET", f"{API_PREFIX}/transfers/{torrent_hash}/info", accept=(404,)
+        )
 
     async def stop_seeding(self) -> Any:
         # torrent-downloader stops ALL seeding torrents; it takes no body. Safe

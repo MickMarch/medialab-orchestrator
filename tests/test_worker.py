@@ -153,3 +153,29 @@ class TestRetry:
         recovered = await worker.process(HASH)
         assert recovered.status is JobStatus.DONE
         assert torrent_client.remove_transfer.await_count == 2  # re-ran the early step
+
+
+class TestResolveMetaWithoutCache:
+    async def test_missing_transfer_info_does_not_block_the_pipeline(
+        self,
+        worker: PipelineWorker,
+        store: JobStore,
+        torrent_client: AsyncMock,
+        jellyfin_client: AsyncMock,
+        tmp_path: Path,
+        mocker,
+    ):
+        # The downloader's hash cache is lost on every image rebuild; the job
+        # already carries media_type and tmdb_id, so a 404 there is not fatal.
+        mocker.patch.object(worker_module.config, "media_mount_path", str(tmp_path))
+        (tmp_path / "Shows" / TV_RELEASE).mkdir(parents=True)
+        (tmp_path / "Shows" / TV_RELEASE / "Show.Name.S01E01.1080p.mkv").write_text("ep")
+        _seed_tv_job(store)
+        _wire_downstream(torrent_client, jellyfin_client)
+        torrent_client.transfer_info.return_value = None
+
+        job = await worker.process(HASH)
+
+        assert job.status is JobStatus.DONE
+        assert job.source_path is None
+        assert job.resolved_title == "Show Name"

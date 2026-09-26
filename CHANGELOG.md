@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- RESOLVE_META no longer fails when torrent-downloader has no cached entry
+  for the hash (its cache is wiped by an image rebuild); the job's own
+  `media_type` and `tmdb_id` are what the pipeline needs, `source_path` is
+  left empty. Seen on the first health-poll tick: five recovered jobs 404'd.
+
 ## [0.8.0] - 2026-09-25
 
 ### Added
