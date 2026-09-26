@@ -69,6 +69,18 @@ def source_root_name(content_path: str) -> str:
     return content_path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
 
 
+def usable_root_name(value: str | None) -> str | None:
+    """A job's recorded on-disk root name, or None when it is not a bare name.
+
+    Jobs from before the content_path fix stored a host root path here; joining
+    that onto the media root produces nonsense, so anything with a separator or
+    a drive is ignored and the caller falls back to the release name.
+    """
+    if not value or "/" in value or "\\" in value or ":" in value:
+        return None
+    return value
+
+
 def sanitize_title(title: str) -> str:
     """Strip characters Windows paths reject, collapse whitespace, drop trailing dots."""
     cleaned = _ILLEGAL_PATH_CHARS.sub("", title)

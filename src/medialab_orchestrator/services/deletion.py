@@ -22,6 +22,7 @@ from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClien
 from medialab_orchestrator.core.config import config
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.logger import app_logger
+from medialab_orchestrator.services.rename import usable_root_name
 from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob
 
 SCAN_UPDATE_DELETED = "Deleted"
@@ -58,7 +59,7 @@ def plan_deletion(job: PipelineJob) -> DeletionPlan:
     torrent = job.torrent_hash is not None and (
         job.status in _TORRENT_MAY_REMAIN or job.seeding_removed_at is None
     )
-    root_name = job.source_path or job.release_name
+    root_name = usable_root_name(job.source_path) or usable_root_name(job.release_name)
     download_folder = str(root / root_name) if root_name else None
 
     placed: list[str] = list(job.placed_paths)
