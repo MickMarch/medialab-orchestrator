@@ -15,6 +15,7 @@ from fastapi import Request
 
 from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClient
 from medialab_orchestrator.core.config import config
+from medialab_orchestrator.services.health_poll import HealthPoller
 from medialab_orchestrator.services.worker import PipelineWorker
 from medialab_orchestrator.store import JobStore
 
@@ -25,6 +26,7 @@ class AppContext:
     torrent: TorrentDownloaderClient
     jellyfin: JellyfinClient
     worker: PipelineWorker
+    poller: HealthPoller | None = None
 
 
 def build_context() -> AppContext:
@@ -33,7 +35,14 @@ def build_context() -> AppContext:
     torrent = TorrentDownloaderClient()
     jellyfin = JellyfinClient()
     worker = PipelineWorker(store=store, torrent_client=torrent, jellyfin_client=jellyfin)
-    return AppContext(store=store, torrent=torrent, jellyfin=jellyfin, worker=worker)
+    poller = HealthPoller(
+        store=store,
+        torrent_client=torrent,
+        worker=worker,
+        auto_resume_max=config.auto_resume_max,
+        auto_retry_max=config.auto_retry_max,
+    )
+    return AppContext(store=store, torrent=torrent, jellyfin=jellyfin, worker=worker, poller=poller)
 
 
 def get_context(request: Request) -> AppContext:

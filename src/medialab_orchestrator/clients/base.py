@@ -47,7 +47,10 @@ class DownstreamClient:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        accept: tuple[int, ...] = (),
     ) -> Any:
+        """``accept`` lists non-2xx statuses that mean "already in the wanted
+        state" for an idempotent action; they return ``None`` instead of raising."""
         url = f"{self._base_url}{path}"
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -56,6 +59,8 @@ class DownstreamClient:
                 )
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in accept:
+                return None
             app_logger.warning(
                 "%s returned %d for %s %s",
                 self._name,
@@ -84,6 +89,9 @@ class DownstreamClient:
 
     async def post(self, path: str, *, json: dict[str, Any] | None = None) -> Any:
         return await self.request("POST", path, json=json)
+
+    async def delete(self, path: str, *, accept: tuple[int, ...] = ()) -> Any:
+        return await self.request("DELETE", path, accept=accept)
 
     async def is_reachable(self) -> bool:
         """Probe the downstream ``/api/v1/health`` endpoint for the gateway's

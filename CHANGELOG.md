@@ -6,6 +6,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Health poll (`HEALTH_POLL_INTERVAL_SECONDS`, default 300): resumes errored
+  downloads up to `AUTO_RESUME_MAX` times, runs the pipeline for completions
+  the webhook missed, retries `FAILED` jobs up to `AUTO_RETRY_MAX` attempts,
+  and parks anything past its budget in the new `NEEDS_ATTENTION` status with
+  the reason in `last_error`. `POST /jobs/{id}/retry` accepts that status and
+  resets both budgets. `GET /health` reports `needs_attention`.
+- Job columns `remediations` and `seeding_removed_at`, added to an existing
+  database at startup.
+
+### Changed
+
+- STOP_SEEDING removes the job's torrent from qBittorrent (files kept) via
+  `DELETE /transfers/{hash}` instead of pausing every seeding torrent, so a
+  finished download never errors in qBittorrent after RENAME empties its
+  folder. Requires torrent-downloader with the per-hash endpoints.
+
 ## [0.7.0] - 2026-09-25
 
 ### Changed

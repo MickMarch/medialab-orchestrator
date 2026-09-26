@@ -157,6 +157,8 @@ async def retry_job(
             code=ErrorCode.INVALID_INPUT,
             detail=f"Job {job_id} has no torrent hash yet; cannot retry.",
         )
+    # A human retry restarts the automatic budgets the health poll spends.
+    ctx.store.update_job(existing.id, attempts=0, remediations=0)
     job = await ctx.worker.process(existing.torrent_hash)
     return JobView.from_job(job)
 

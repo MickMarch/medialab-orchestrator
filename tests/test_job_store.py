@@ -144,3 +144,40 @@ class TestPersistence:
         _create(store_a)
         store_b = JobStore(db_path=db)
         assert store_b.list_jobs()[0].release_name == RELEASE
+
+
+class TestAddedColumns:
+    def test_existing_database_gains_new_columns(self, tmp_path):
+        import sqlite3
+
+        db = tmp_path / "old.db"
+        conn = sqlite3.connect(db)
+        conn.executescript(
+            """
+            CREATE TABLE pipeline_job (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+                torrent_hash TEXT UNIQUE, release_name TEXT NOT NULL, media_type TEXT NOT NULL,
+                tmdb_id INTEGER NOT NULL, resolved_title TEXT, resolved_year INTEGER,
+                source_path TEXT, dest_path TEXT, status TEXT NOT NULL, last_error TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            INSERT INTO pipeline_job
+                (id, release_name, media_type, tmdb_id, status, created_at, updated_at)
+            VALUES ('old1', 'Old.2020', 'movie', 7, 'DONE', 't', 't');
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        store = JobStore(db_path=str(db))
+        old = store.get_job_by_id("old1")
+        assert old.remediations == 0
+        assert old.seeding_removed_at is None
+        updated = store.update_job("old1", remediations=2, seeding_removed_at="now")
+        assert (updated.remediations, updated.seeding_removed_at) == (2, "now")
+
+    def test_needs_attention_is_a_listable_status(self, store: JobStore):
+        job = store.create_job(release_name="x", media_type=MediaType.MOVIE, tmdb_id=1)
+        store.update_job(job.id, status=JobStatus.NEEDS_ATTENTION, last_error="why")
+        assert [j.id for j in store.list_jobs(status=JobStatus.NEEDS_ATTENTION)] == [job.id]

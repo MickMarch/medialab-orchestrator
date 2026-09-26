@@ -192,3 +192,23 @@ class TestAuth:
         resp = unauthed_client.get("/api/v1/jobs")
         assert resp.status_code == 403
         assert resp.json()["code"] == "UNAUTHORIZED"
+
+
+class TestRetryResetsBudgets:
+    def test_retry_of_needs_attention_resets_counters(
+        self, app_client, store: JobStore, torrent_client: AsyncMock, jellyfin_client: AsyncMock
+    ):
+        job = store.create_job(
+            torrent_hash=HASH, release_name="Foo.2021", media_type=MediaType.MOVIE, tmdb_id=1
+        )
+        store.update_job(
+            job.id, status=JobStatus.NEEDS_ATTENTION, attempts=5, remediations=3, last_error="x"
+        )
+        # Downstream fails immediately so the job lands back in FAILED with attempts == 1,
+        # proving the counters were reset before the pipeline ran.
+        torrent_client.remove_transfer.side_effect = RuntimeError("boom")
+        resp = app_client.post(f"/api/v1/jobs/{job.id}/retry")
+        assert resp.status_code == 200
+        after = store.get_job_by_id(job.id)
+        assert after.status is JobStatus.FAILED
+        assert (after.attempts, after.remediations) == (1, 0)

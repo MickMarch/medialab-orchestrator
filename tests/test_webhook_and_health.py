@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 from medialab_contracts import MediaType
 
-from medialab_orchestrator.store import JobStore
+from medialab_orchestrator.store import JobStatus, JobStore
 
 HASH = "abcdef0123456789abcdef0123456789abcdef01"
 
@@ -64,3 +64,12 @@ class TestHealth:
         torrent_client.is_reachable.return_value = True
         jellyfin_client.is_reachable.return_value = True
         assert unauthed_client.get("/api/v1/health").status_code == 200
+
+    def test_reports_needs_attention_count(
+        self, app_client, store: JobStore, torrent_client: AsyncMock, jellyfin_client: AsyncMock
+    ):
+        torrent_client.is_reachable.return_value = True
+        jellyfin_client.is_reachable.return_value = True
+        job = store.create_job(release_name="x", media_type=MediaType.MOVIE, tmdb_id=1)
+        store.update_job(job.id, status=JobStatus.NEEDS_ATTENTION, last_error="why")
+        assert app_client.get("/api/v1/health").json()["needs_attention"] == 1

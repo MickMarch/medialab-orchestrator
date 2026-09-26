@@ -25,7 +25,9 @@ class JobStatus(str, Enum):
 
     Forward-only happy path: ``DOWNLOAD_SUBMITTED`` -> ... -> ``DONE``.
     ``FAILED`` is terminal-but-retryable (retry re-enters from the last good
-    state). Wire values are the enum names so a row reads as its status.
+    state). ``NEEDS_ATTENTION`` is where the health poll parks a job once its
+    automatic budget is spent; only a human retry moves it on. Wire values are
+    the enum names so a row reads as its status.
     """
 
     DOWNLOAD_SUBMITTED = "DOWNLOAD_SUBMITTED"
@@ -36,6 +38,7 @@ class JobStatus(str, Enum):
     SCAN = "SCAN"
     DONE = "DONE"
     FAILED = "FAILED"
+    NEEDS_ATTENTION = "NEEDS_ATTENTION"
 
 
 class PipelineJob(BaseModel):
@@ -59,6 +62,8 @@ class PipelineJob(BaseModel):
     status: JobStatus
     last_error: str | None = None
     attempts: int = 0
+    remediations: int = 0
+    seeding_removed_at: str | None = None
     created_at: str
     updated_at: str
 
@@ -80,6 +85,8 @@ CREATE TABLE IF NOT EXISTS pipeline_job (
     status         TEXT    NOT NULL,
     last_error     TEXT,
     attempts       INTEGER NOT NULL DEFAULT 0,
+    remediations   INTEGER NOT NULL DEFAULT 0,
+    seeding_removed_at TEXT,
     created_at     TEXT    NOT NULL,
     updated_at     TEXT    NOT NULL
 );
@@ -100,8 +107,17 @@ _UPDATABLE_COLUMNS = frozenset(
         "status",
         "last_error",
         "attempts",
+        "remediations",
+        "seeding_removed_at",
     }
 )
+
+# Columns added after the first release. Applied with ALTER TABLE at startup
+# when an existing database lacks them (SQLite, no migration tool).
+_ADDED_COLUMNS: dict[str, str] = {
+    "remediations": "INTEGER NOT NULL DEFAULT 0",
+    "seeding_removed_at": "TEXT",
+}
 
 
 def _now() -> str:
@@ -142,6 +158,10 @@ class JobStore:
         self._shared: sqlite3.Connection | None = self._connect() if db_path == ":memory:" else None
         with self._cursor() as cur:
             cur.executescript(_SCHEMA)
+            present = {row["name"] for row in cur.execute("PRAGMA table_info(pipeline_job)")}
+            for column, definition in _ADDED_COLUMNS.items():
+                if column not in present:
+                    cur.execute(f"ALTER TABLE pipeline_job ADD COLUMN {column} {definition}")
 
     def _connect(self) -> sqlite3.Connection:
         # A file-backed DB opens per operation, so it stays on the calling
@@ -289,6 +309,8 @@ def _row_to_job(row: sqlite3.Row) -> PipelineJob:
         status=JobStatus(row["status"]),
         last_error=row["last_error"],
         attempts=row["attempts"],
+        remediations=row["remediations"],
+        seeding_removed_at=row["seeding_removed_at"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

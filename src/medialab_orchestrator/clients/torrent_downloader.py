@@ -56,5 +56,13 @@ class TorrentDownloaderClient(DownstreamClient):
         # STOP_SEEDING step stays idempotent.
         return await self.post(f"{API_PREFIX}/transfers/stop-seeding")
 
+    async def resume_transfer(self, torrent_hash: str) -> Any:
+        return await self.post(f"{API_PREFIX}/transfers/{torrent_hash}/resume")
+
+    async def remove_transfer(self, torrent_hash: str) -> Any:
+        # Drops qBittorrent's handle once the pipeline owns the files. A 404 means
+        # it is already gone (retry after a partial run), which is the wanted state.
+        return await self.delete(f"{API_PREFIX}/transfers/{torrent_hash}", accept=(404,))
+
     async def storage(self) -> Any:
         return await self.get(f"{API_PREFIX}/storage")

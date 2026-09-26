@@ -37,7 +37,7 @@ go through it (shared volume, never a host shell-out).
 ```
 DOWNLOAD_SUBMITTED   POST /download accepted, forwarded to torrent-downloader
 DOWNLOADING          qBittorrent working (read-through from /transfers on request)
-STOP_SEEDING         webhook received -> torrent-downloader POST /transfers/stop-seeding
+STOP_SEEDING         webhook or poll -> torrent-downloader DELETE /transfers/{hash} (files kept)
 RESOLVE_META         GET /transfers/{hash}/info -> {media_type, host_path, tmdb_id};
                      GET /search/tmdb/{type}/{tmdb_id} -> canonical title + year
 RENAME               per video file: show -> <root>/Title (Year)/Season NN/Title SNNEMM.ext
@@ -45,7 +45,8 @@ RENAME               per video file: show -> <root>/Title (Year)/Season NN/Title
 SCAN                 medialab-jellyfin POST /library/scan
 DONE
 FAILED               any step error; last_error stored; POST /jobs/{id}/retry re-enters
-                     from the last good state
+                     from the last good state; the health poll retries it AUTO_RETRY_MAX times
+NEEDS_ATTENTION      the poll's budget for a job is spent; only a human retry moves it
 ```
 
 Columns: `id` (surrogate uuid PK), `torrent_hash` (nullable, unique when
@@ -57,8 +58,8 @@ or backfilled by the webhook `%I`), `seq` (rowid, newest-first ordering),
 resolves by hash, then updates by id; an unmatched hash orphan-inserts a job so
 the event is still tracked.
 
-**Idempotency (required for safe retry):** STOP_SEEDING on an already-stopped
-torrent is a no-op. RESOLVE_META is pure reads. RENAME skips every
+**Idempotency (required for safe retry):** STOP_SEEDING treats an
+already-removed torrent (404) as done. RESOLVE_META is pure reads. RENAME skips every
 file whose destination exists or whose source is gone, so a partial run
 finishes on retry. SCAN (`Media/Updated`) is safe to repeat.
 
@@ -79,11 +80,11 @@ Jellyfin recursively scans them and 404s on a sub-path of a registered root.
   bot -> gateway -> downloader (cached vs hash) -> back at completion.
   Canonical `Title (Year)` comes from TMDB via torrent-downloader (the sole
   TMDB-key holder). PTN parses season and episode per file, nothing else.
-- **Read-through, plus a poll to come.** `GET /transfers` merges job rows with
-  a one-shot downstream read. The completion webhook is the fast path; a
-  periodic health poll for stuck downloads is planned
-  ([MickMarch/medialab#20](https://github.com/MickMarch/medialab/issues/20),
-  `docs/decisions/0003-webhook-plus-poll.md`).
+- **Webhook plus poll.** The completion webhook is the fast path; the health
+  poll (`services/health_poll.py`, every `HEALTH_POLL_INTERVAL_SECONDS`) is the
+  safety net: resume errored downloads, run the pipeline for missed
+  completions, retry FAILED jobs, flag `NEEDS_ATTENTION` past the budgets.
+  `docs/decisions/0003-webhook-plus-poll.md`.
 - **Search proxies create no job.** `GET /search/*` are stateless
   passthroughs, the one accepted exception to "every gateway endpoint binds a
   job".
@@ -97,7 +98,7 @@ src/medialab_orchestrator/
 ├── core/        config, auth, deps, limiter, middleware, logger, errors
 ├── clients/     base (httpx + X-API-Key), torrent_downloader, jellyfin
 ├── store/       jobs (JobStatus, PipelineJob, JobStore over sqlite3)
-├── services/    worker (asyncio pipeline), metadata (TMDB resolve),
+├── services/    worker (asyncio pipeline), health_poll (periodic remediation), metadata (TMDB resolve),
 │                rename (pure plan_rename to Jellyfin layout + apply_plan mover)
 ├── routers/     system (/health), search (proxies), gateway (download/transfers/jobs/storage),
 │                webhooks (torrent-complete)
