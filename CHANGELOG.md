@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-26
+
 ### Fixed
 
 - RENAME no longer reports DONE when a locked source file stayed behind
