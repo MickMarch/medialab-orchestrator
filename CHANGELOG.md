@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `GET /search/torrents` forwards `alt_query` to torrent-downloader.
+
 ## [0.12.0] - 2026-09-26
 
 ### Added
