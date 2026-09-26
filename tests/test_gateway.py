@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 from medialab_contracts import MediaType
 
+from medialab_orchestrator.routers import gateway as gateway_module
 from medialab_orchestrator.store import JobStatus, JobStore
 
 HASH = "abcdef0123456789abcdef0123456789abcdef01"
@@ -112,9 +113,19 @@ class TestTransfersAndStorage:
         assert "transfers" in body
         assert len(body["jobs"]) == 1
 
-    def test_storage_proxied(self, app_client, torrent_client: AsyncMock):
-        torrent_client.storage.return_value = {"free": 1}
-        assert app_client.get("/api/v1/storage").json() == {"free": 1}
+    def test_storage_measures_the_media_mount(self, app_client, tmp_path, mocker):
+        mocker.patch.object(gateway_module.config, "media_mount_path", str(tmp_path))
+        body = app_client.get("/api/v1/storage").json()
+        assert body["status"] == "success"
+        assert body["path"] == str(tmp_path)
+        assert body["total_gb"] > 0
+        assert 0 <= body["used_percent"] <= 100
+
+    def test_storage_missing_mount_is_500(self, app_client, tmp_path, mocker):
+        mocker.patch.object(gateway_module.config, "media_mount_path", str(tmp_path / "gone"))
+        resp = app_client.get("/api/v1/storage")
+        assert resp.status_code == 500
+        assert resp.json()["code"] == "INTERNAL_ERROR"
 
     def test_stop_seeding_proxied_with_accepted(self, app_client, torrent_client: AsyncMock):
         torrent_client.stop_seeding.return_value = {

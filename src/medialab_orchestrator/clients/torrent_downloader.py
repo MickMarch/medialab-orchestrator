@@ -71,6 +71,3 @@ class TorrentDownloaderClient(DownstreamClient):
         if delete_files:
             path += "?delete_files=true"
         return await self.delete(path, accept=(404,))
-
-    async def storage(self) -> Any:
-        return await self.get(f"{API_PREFIX}/storage")

@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `GET /storage` measures the media mount itself instead of proxying to
+  torrent-downloader, which required a `path` it was never given (422 -> 502).
+
 ## [0.11.0] - 2026-09-26
 
 ### Changed

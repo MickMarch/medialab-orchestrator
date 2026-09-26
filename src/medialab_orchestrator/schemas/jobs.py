@@ -80,3 +80,15 @@ class WebhookPayload(BaseModel):
     """qBittorrent's %F: absolute path of the root file or folder. Optional so
     an older hook command without it still works; the pipeline then falls back
     to the transfer list at STOP_SEEDING."""
+
+
+class DiskUsageView(BaseModel):
+    """Free space on the media mount, measured by the gateway itself: it is
+    the only service with the library mounted."""
+
+    status: str
+    path: str
+    total_gb: float
+    used_gb: float
+    free_gb: float
+    used_percent: float
