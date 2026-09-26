@@ -57,6 +57,12 @@ class RenamePlan:
     moves: tuple[tuple[Path, Path], ...]
 
 
+def source_root_name(content_path: str) -> str:
+    """The on-disk root name (file or folder) from qBittorrent's content path,
+    whichever separator the host used."""
+    return content_path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+
+
 def sanitize_title(title: str) -> str:
     """Strip characters Windows paths reject, collapse whitespace, drop trailing dots."""
     cleaned = _ILLEGAL_PATH_CHARS.sub("", title)

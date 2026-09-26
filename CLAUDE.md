@@ -37,9 +37,9 @@ go through it (shared volume, never a host shell-out).
 ```
 DOWNLOAD_SUBMITTED   POST /download accepted, forwarded to torrent-downloader
 DOWNLOADING          qBittorrent working (read-through from /transfers on request)
-STOP_SEEDING         webhook or poll -> torrent-downloader DELETE /transfers/{hash} (files kept)
-RESOLVE_META         GET /transfers/{hash}/info -> {media_type, host_path, tmdb_id};
-                     GET /search/tmdb/{type}/{tmdb_id} -> canonical title + year
+STOP_SEEDING         webhook or poll -> record the on-disk root (content_path basename) if the
+                     webhook did not carry it, then torrent-downloader DELETE /transfers/{hash}
+RESOLVE_META         GET /search/tmdb/{type}/{tmdb_id} -> canonical title + year
 RENAME               per video file: show -> <root>/Title (Year)/Season NN/Title SNNEMM.ext
                      movie -> <root>/Title (Year)/Title (Year).ext (+ extras/); subs follow
 SCAN                 medialab-jellyfin POST /library/scan
@@ -53,8 +53,9 @@ Columns: `id` (surrogate uuid PK), `torrent_hash` (nullable, unique when
 present, lowercase; stamped from the downloader's `POST /download` response
 or backfilled by the webhook `%I`), `seq` (rowid, newest-first ordering),
 `release_name`, `media_type`, `tmdb_id`, `resolved_title`, `resolved_year`,
-`source_path`, `dest_path`, `status`, `last_error`, `attempts`, `created_at`,
-`updated_at`. A job is born at download submit, never at search. The webhook
+`source_path` (the on-disk root name from qBittorrent's content path; the display
+`release_name` is not it), `dest_path`, `status`, `last_error`, `attempts`,
+`remediations`, `seeding_removed_at`, `created_at`, `updated_at`. A job is born at download submit, never at search. The webhook
 resolves by hash, then updates by id; an unmatched hash orphan-inserts a job so
 the event is still tracked.
 

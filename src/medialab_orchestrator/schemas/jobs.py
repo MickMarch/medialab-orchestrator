@@ -62,3 +62,7 @@ class WebhookPayload(BaseModel):
 
     hash: str = Field(min_length=1)
     name: str = Field(min_length=1)
+    content_path: str = ""
+    """qBittorrent's %F: absolute path of the root file or folder. Optional so
+    an older hook command without it still works; the pipeline then falls back
+    to the transfer list at STOP_SEEDING."""

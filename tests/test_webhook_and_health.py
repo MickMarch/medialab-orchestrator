@@ -73,3 +73,18 @@ class TestHealth:
         job = store.create_job(release_name="x", media_type=MediaType.MOVIE, tmdb_id=1)
         store.update_job(job.id, status=JobStatus.NEEDS_ATTENTION, last_error="why")
         assert app_client.get("/api/v1/health").json()["needs_attention"] == 1
+
+    def test_content_path_records_the_on_disk_root(
+        self, app_client, store: JobStore, torrent_client: AsyncMock
+    ):
+        store.create_job(torrent_hash=HASH, release_name="", media_type=MediaType.MOVIE, tmdb_id=5)
+        torrent_client.transfer_info.side_effect = Exception("stop here")
+        app_client.post(
+            "/api/v1/webhooks/torrent-complete",
+            json={
+                "hash": HASH,
+                "name": "Foo (2021) [1080p] [5 1]",
+                "content_path": "F:\\Media\\Movies\\Foo (2021) [1080p] [5.1]",
+            },
+        )
+        assert store.get_job_by_hash(HASH).source_path == "Foo (2021) [1080p] [5.1]"

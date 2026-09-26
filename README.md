@@ -70,10 +70,11 @@ the one qBittorrent setting re-pointed.
 3. qBittorrent -> Tools -> Options -> Downloads -> "Run external program on
    torrent completion":
    ```
-   python "C:\medialab\notify_complete.py" "%I" "%N"
+   python "C:\medialab\notify_complete.py" "%I" "%N" "%F"
    ```
-   (`%I` info-hash, `%N` torrent name; use the full path to `python` if it is
-   not on qBittorrent's PATH.)
+   (`%I` info-hash, `%N` torrent name, `%F` content path: the real root file
+   or folder on disk, which the display name is not. Use the full path to
+   `python` if it is not on qBittorrent's PATH.)
 
 Verify with `GET /api/v1/jobs`: a completed torrent's job should leave
 `DOWNLOAD_SUBMITTED` and progress to `DONE`.

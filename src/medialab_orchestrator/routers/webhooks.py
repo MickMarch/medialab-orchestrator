@@ -18,6 +18,7 @@ from medialab_orchestrator.core.limiter import RATE_LIMIT_DEFAULT, limiter
 from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.schemas.errors import ErrorResponse
 from medialab_orchestrator.schemas.jobs import WebhookPayload
+from medialab_orchestrator.services.rename import source_root_name
 from medialab_orchestrator.store import JobNotFoundError
 
 router = APIRouter(tags=["Webhooks"])
@@ -44,17 +45,23 @@ async def torrent_complete(
     background: BackgroundTasks,
     ctx: AppContext = Depends(get_context),
 ) -> dict[str, Any]:
+    # The display name is not the on-disk name; the content path's basename is.
+    fields: dict[str, Any] = {"release_name": payload.name}
+    if payload.content_path:
+        fields["source_path"] = source_root_name(payload.content_path)
     try:
         job = ctx.store.get_job_by_hash(payload.hash)
-        ctx.store.update_job(job.id, release_name=payload.name)
+        ctx.store.update_job(job.id, **fields)
     except JobNotFoundError:
         app_logger.warning("Completion for unknown hash %s; tracking as orphan job", payload.hash)
-        ctx.store.create_job(
+        orphan = ctx.store.create_job(
             torrent_hash=payload.hash,
             release_name=payload.name,
             media_type=MediaType.MOVIE,
             tmdb_id=_ORPHAN_TMDB_ID,
         )
+        if payload.content_path:
+            ctx.store.update_job(orphan.id, source_path=fields["source_path"])
 
     # Run the pipeline off the request so qBittorrent's hook returns immediately.
     background.add_task(ctx.worker.process, payload.hash)

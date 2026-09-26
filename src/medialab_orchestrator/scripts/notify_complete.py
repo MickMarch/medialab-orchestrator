@@ -11,9 +11,12 @@ Python is present - the host next to qBittorrent, or inside a container - with
 no install step. Drop it anywhere and point qBittorrent at it directly.
 
 Configure qBittorrent's completion command as either:
-    python -m medialab_orchestrator.scripts.notify_complete "%I" "%N"
-    python C:\\path\\to\\notify_complete.py "%I" "%N"
-(%I = info-hash, %N = torrent name). Reads its own env, separate from the
+    python -m medialab_orchestrator.scripts.notify_complete "%I" "%N" "%F"
+    python C:\\path\\to\\notify_complete.py "%I" "%N" "%F"
+(%I = info-hash, %N = torrent name, %F = content path: the root file or folder
+on disk, which the display name is not). %F is optional for older hook
+commands; the orchestrator then reads it from the transfer list instead. Reads
+its own env, separate from the
 service container:
     ORCHESTRATOR_URL     - base URL of the orchestrator (e.g. http://localhost:8000)
     ORCHESTRATOR_API_KEY - the gateway X-API-Key
@@ -29,16 +32,18 @@ import urllib.request
 
 _WEBHOOK_PATH = "/api/v1/webhooks/torrent-complete"
 _TIMEOUT_SECONDS = 10.0
-_EXPECTED_ARGS = 2
+_MIN_ARGS = 2
+_MAX_ARGS = 3
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = (argv if argv is not None else sys.argv[1:])[:_EXPECTED_ARGS]
-    if len(args) != _EXPECTED_ARGS:
-        print("usage: notify_complete.py <hash> <name>", file=sys.stderr)
+    args = (argv if argv is not None else sys.argv[1:])[:_MAX_ARGS]
+    if len(args) < _MIN_ARGS:
+        print("usage: notify_complete.py <hash> <name> [<content_path>]", file=sys.stderr)
         return 2
 
-    torrent_hash, name = args
+    torrent_hash, name = args[0], args[1]
+    content_path = args[2] if len(args) > _MIN_ARGS else ""
     base_url = os.environ.get("ORCHESTRATOR_URL", "").rstrip("/")
     if not base_url:
         print("ORCHESTRATOR_URL is not set", file=sys.stderr)
@@ -49,7 +54,10 @@ def main(argv: list[str] | None = None) -> int:
     if api_key:
         headers["X-API-Key"] = api_key
 
-    body = json.dumps({"hash": torrent_hash, "name": name}).encode()
+    payload = {"hash": torrent_hash, "name": name}
+    if content_path:
+        payload["content_path"] = content_path
+    body = json.dumps(payload).encode()
     request = urllib.request.Request(
         f"{base_url}{_WEBHOOK_PATH}", data=body, headers=headers, method="POST"
     )
