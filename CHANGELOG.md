@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-25
+
 ### Fixed
 
 - RESOLVE_META no longer fails when torrent-downloader has no cached entry
