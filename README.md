@@ -38,6 +38,7 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 | `GET` | `/health` | Public. Reachability of both downstream services plus `needs_attention`, the count of jobs waiting on a human. |
 | `GET` | `/search/tmdb?query=` | Proxy to torrent-downloader. No job created. |
 | `GET` | `/search/tmdb/{movie\|show}/{tmdb_id}` | Proxy. Show detail carries the season list. |
+| `DELETE` | `/search/cache` | Proxy to torrent-downloader `DELETE /cache`: drops cached search and TMDB result sets. |
 | `GET` | `/search/torrents?query=&media_type=[&season=&episode=]` | Proxy; scope validated via `TorrentSearchScope`. |
 | `POST` | `/download` | Body `{source_url, media_type, tmdb_id}`. Creates a `pipeline_job`, forwards to torrent-downloader, stamps the returned `torrent_hash`. Returns the job (`202`). |
 | `GET` | `/transfers` | Live downloader transfers merged with job rows. |
