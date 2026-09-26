@@ -266,3 +266,18 @@ class TestSearchCacheProxy:
         assert resp.status_code == 200
         assert resp.json()["cleared"] is True
         torrent_client.clear_search_cache.assert_awaited_once()
+
+
+class TestSearchAltQuery:
+    def test_alt_query_forwarded(self, app_client, torrent_client: AsyncMock):
+        torrent_client.search_torrents.return_value = {"data": {}}
+        resp = app_client.get(
+            "/api/v1/search/torrents",
+            params={
+                "query": "Lee Cronin's The Mummy 2026",
+                "media_type": "movie",
+                "alt_query": "The Mummy 2026",
+            },
+        )
+        assert resp.status_code == 200
+        assert torrent_client.search_torrents.await_args.kwargs["alt_query"] == "The Mummy 2026"

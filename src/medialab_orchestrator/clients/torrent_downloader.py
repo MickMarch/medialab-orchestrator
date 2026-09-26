@@ -26,8 +26,12 @@ class TorrentDownloaderClient(DownstreamClient):
     async def tmdb_detail(self, media_type: MediaType, tmdb_id: int) -> Any:
         return await self.get(f"{API_PREFIX}/search/tmdb/{media_type.value}/{tmdb_id}")
 
-    async def search_torrents(self, query: str, scope: TorrentSearchScope) -> Any:
+    async def search_torrents(
+        self, query: str, scope: TorrentSearchScope, *, alt_query: str | None = None
+    ) -> Any:
         params: dict[str, Any] = {"query": query, "media_type": scope.media_type.value}
+        if alt_query:
+            params["alt_query"] = alt_query
         if scope.season is not None:
             params["season"] = scope.season
         if scope.episode is not None:

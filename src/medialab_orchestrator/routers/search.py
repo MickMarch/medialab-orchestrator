@@ -66,6 +66,7 @@ async def search_torrents(
     media_type: MediaType,
     season: int | None = None,
     episode: int | None = None,
+    alt_query: str | None = None,
     ctx: AppContext = Depends(get_context),
 ) -> Any:
     try:
@@ -76,7 +77,7 @@ async def search_torrents(
             code=ErrorCode.INVALID_INPUT,
             detail="Invalid season/episode combination for the requested media type.",
         ) from error
-    return await ctx.torrent.search_torrents(query, scope)
+    return await ctx.torrent.search_torrents(query, scope, alt_query=alt_query)
 
 
 @router.delete(
