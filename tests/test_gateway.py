@@ -212,3 +212,37 @@ class TestRetryResetsBudgets:
         after = store.get_job_by_id(job.id)
         assert after.status is JobStatus.FAILED
         assert (after.attempts, after.remediations) == (1, 0)
+
+
+class TestDeletion:
+    def test_plan_is_read_only(self, app_client, store: JobStore, torrent_client: AsyncMock):
+        job = store.create_job(
+            torrent_hash=HASH, release_name="Foo.2021", media_type=MediaType.MOVIE, tmdb_id=1
+        )
+        body = app_client.get(f"/api/v1/jobs/{job.id}/deletion-plan").json()
+        assert body["torrent"] is True
+        assert body["download_folder"].endswith("Foo.2021")
+        assert body["refused"] is None
+        assert store.get_job_by_id(job.id).status is JobStatus.DOWNLOAD_SUBMITTED
+        torrent_client.remove_transfer.assert_not_awaited()
+
+    def test_delete_marks_deleted_and_removes_torrent_with_files(
+        self, app_client, store: JobStore, torrent_client: AsyncMock, jellyfin_client: AsyncMock
+    ):
+        job = store.create_job(
+            torrent_hash=HASH, release_name="Foo.2021", media_type=MediaType.MOVIE, tmdb_id=1
+        )
+        resp = app_client.delete(f"/api/v1/jobs/{job.id}")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "DELETED"
+        torrent_client.remove_transfer.assert_awaited_once_with(HASH, delete_files=True)
+
+    def test_delete_unknown_job_is_404(self, app_client):
+        assert app_client.delete("/api/v1/jobs/nope").status_code == 404
+
+    def test_retry_of_deleted_job_is_409(self, app_client, store: JobStore):
+        job = store.create_job(
+            torrent_hash=HASH, release_name="Foo.2021", media_type=MediaType.MOVIE, tmdb_id=1
+        )
+        store.update_job(job.id, status=JobStatus.DELETED)
+        assert app_client.post(f"/api/v1/jobs/{job.id}/retry").status_code == 409

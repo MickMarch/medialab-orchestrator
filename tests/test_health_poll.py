@@ -149,7 +149,9 @@ class TestFailed:
 
 
 class TestTerminalAndRobustness:
-    @pytest.mark.parametrize("status", [JobStatus.DONE, JobStatus.NEEDS_ATTENTION])
+    @pytest.mark.parametrize(
+        "status", [JobStatus.DONE, JobStatus.NEEDS_ATTENTION, JobStatus.DELETED]
+    )
     async def test_terminal_jobs_are_untouched(self, poller, store, torrent_client, worker, status):
         job = _seed(store, status)
         torrent_client.transfers.return_value = {"data": [_transfer("error")]}

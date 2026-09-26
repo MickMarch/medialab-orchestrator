@@ -6,6 +6,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- RENAME no longer reports DONE when a locked source file stayed behind
+  after its copy landed (a Windows file lock right after completion left the
+  film twice, once under the torrent name). A same-size leftover is removed,
+  a partial destination is redone, and any video still in the download folder
+  fails the job with `RENAME_INCOMPLETE` so the health poll retries it.
+
+### Added
+
+- `GET /jobs/{id}/deletion-plan` and `DELETE /jobs/{id}`: undo a download at
+  any stage (torrent and its data via the downloader, the download folder,
+  exactly the files RENAME placed, a Jellyfin `Deleted` notice); the job is
+  kept as `DELETED`. RENAME records `placed_paths`; jobs that predate it are
+  refused for shows (folder named) and fall back to the movie folder for
+  movies. `deleted_at` column.
+
 ## [0.9.0] - 2026-09-25
 
 ### Fixed

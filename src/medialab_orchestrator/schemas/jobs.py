@@ -37,12 +37,26 @@ class JobView(BaseModel):
     attempts: int
     remediations: int = 0
     seeding_removed_at: str | None = None
+    placed_paths: list[str] = []
+    deleted_at: str | None = None
     created_at: str
     updated_at: str
 
     @classmethod
     def from_job(cls, job: PipelineJob) -> JobView:
         return cls(**job.model_dump())
+
+
+class DeletionPlanView(BaseModel):
+    """What ``DELETE /jobs/{id}`` would remove; shown to the user before confirming."""
+
+    status: str = "success"
+    job_id: str
+    torrent: bool
+    download_folder: str | None
+    placed_paths: list[str]
+    scan_path: str | None
+    refused: str | None
 
 
 class DownloadResponse(BaseModel):

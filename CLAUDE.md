@@ -47,6 +47,7 @@ DONE
 FAILED               any step error; last_error stored; POST /jobs/{id}/retry re-enters
                      from the last good state; the health poll retries it AUTO_RETRY_MAX times
 NEEDS_ATTENTION      the poll's budget for a job is spent; only a human retry moves it
+DELETED              undone via DELETE /jobs/{id}; terminal, kept for the record
 ```
 
 Columns: `id` (surrogate uuid PK), `torrent_hash` (nullable, unique when
@@ -99,7 +100,8 @@ src/medialab_orchestrator/
 ├── core/        config, auth, deps, limiter, middleware, logger, errors
 ├── clients/     base (httpx + X-API-Key), torrent_downloader, jellyfin
 ├── store/       jobs (JobStatus, PipelineJob, JobStore over sqlite3)
-├── services/    worker (asyncio pipeline), health_poll (periodic remediation), metadata (TMDB resolve),
+├── services/    worker (asyncio pipeline), health_poll (periodic remediation), deletion (undo a
+│                download: plan + execute), metadata (TMDB resolve),
 │                rename (pure plan_rename to Jellyfin layout + apply_plan mover)
 ├── routers/     system (/health), search (proxies), gateway (download/transfers/jobs/storage),
 │                webhooks (torrent-complete)
