@@ -1,10 +1,12 @@
 """Gateway router: the stateful surface. Every endpoint here binds a job."""
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from fastapi import status as fastapi_status
 
+from medialab_orchestrator.core.config import config
 from medialab_orchestrator.core.deps import AppContext, get_context
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.limiter import RATE_LIMIT_DEFAULT, limiter
@@ -12,6 +14,7 @@ from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.schemas.errors import ErrorResponse
 from medialab_orchestrator.schemas.jobs import (
     DeletionPlanView,
+    DiskUsageView,
     DownloadRequest,
     DownloadResponse,
     JobsResponse,
@@ -19,6 +22,7 @@ from medialab_orchestrator.schemas.jobs import (
 )
 from medialab_orchestrator.services.deletion import DeletionService, plan_deletion
 from medialab_orchestrator.services.metadata import resolve_title_year
+from medialab_orchestrator.services.storage import disk_usage
 from medialab_orchestrator.store import JobNotFoundError, JobStatus
 
 router = APIRouter(tags=["Gateway"])
@@ -231,10 +235,23 @@ async def stop_seeding(request: Request, ctx: AppContext = Depends(get_context))
 
 @router.get(
     "/storage",
+    response_model=DiskUsageView,
     status_code=fastapi_status.HTTP_200_OK,
-    summary="Disk usage (proxied to torrent-downloader).",
-    responses=_COMMON_ERRORS,
+    summary="Disk usage of the media mount.",
+    responses={
+        **_COMMON_ERRORS,
+        500: {"model": ErrorResponse, "description": "Media mount missing or unreadable."},
+    },
 )
 @limiter.limit(RATE_LIMIT_DEFAULT)
-async def get_storage(request: Request, ctx: AppContext = Depends(get_context)) -> Any:
-    return await ctx.torrent.storage()
+async def get_storage(request: Request) -> DiskUsageView:
+    # Measured here, not proxied: torrent-downloader has no media mount and
+    # qBittorrent's host path means nothing inside a container.
+    try:
+        return disk_usage(Path(config.media_mount_path))
+    except OSError as err:
+        raise AppException(
+            status_code=fastapi_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code=ErrorCode.INTERNAL_ERROR,
+            detail=f"Disk usage check failed for {config.media_mount_path}.",
+        ) from err
