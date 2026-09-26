@@ -40,8 +40,8 @@ DOWNLOADING          qBittorrent working (read-through from /transfers on reques
 STOP_SEEDING         webhook received -> torrent-downloader POST /transfers/stop-seeding
 RESOLVE_META         GET /transfers/{hash}/info -> {media_type, host_path, tmdb_id};
                      GET /search/tmdb/{type}/{tmdb_id} -> canonical title + year
-RENAME               show: PTN(name) -> season; move to <root>/Title (Year)/Season NN/
-                     movie: no move
+RENAME               per video file: show -> <root>/Title (Year)/Season NN/Title SNNEMM.ext
+                     movie -> <root>/Title (Year)/Title (Year).ext (+ extras/); subs follow
 SCAN                 medialab-jellyfin POST /library/scan
 DONE
 FAILED               any step error; last_error stored; POST /jobs/{id}/retry re-enters
@@ -58,8 +58,9 @@ resolves by hash, then updates by id; an unmatched hash orphan-inserts a job so
 the event is still tracked.
 
 **Idempotency (required for safe retry):** STOP_SEEDING on an already-stopped
-torrent is a no-op. RESOLVE_META is pure reads. RENAME skips the move if
-`dest_path` is populated and exists. SCAN (`Media/Updated`) is safe to repeat.
+torrent is a no-op. RESOLVE_META is pure reads. RENAME skips every
+file whose destination exists or whose source is gone, so a partial run
+finishes on retry. SCAN (`Media/Updated`) is safe to repeat.
 
 **No per-download REGISTER step.** Library roots are registered once at setup;
 Jellyfin recursively scans them and 404s on a sub-path of a registered root.
@@ -77,7 +78,7 @@ Jellyfin recursively scans them and 404s on a sub-path of a registered root.
 - **TMDB id threaded, no title guessing.** The bot knows the id; it flows
   bot -> gateway -> downloader (cached vs hash) -> back at completion.
   Canonical `Title (Year)` comes from TMDB via torrent-downloader (the sole
-  TMDB-key holder). PTN parses the season number only.
+  TMDB-key holder). PTN parses season and episode per file, nothing else.
 - **Read-through, plus a poll to come.** `GET /transfers` merges job rows with
   a one-shot downstream read. The completion webhook is the fast path; a
   periodic health poll for stuck downloads is planned
@@ -96,7 +97,8 @@ src/medialab_orchestrator/
 ├── core/        config, auth, deps, limiter, middleware, logger, errors
 ├── clients/     base (httpx + X-API-Key), torrent_downloader, jellyfin
 ├── store/       jobs (JobStatus, PipelineJob, JobStore over sqlite3)
-├── services/    worker (asyncio pipeline), metadata (TMDB resolve), rename (PTN season + move)
+├── services/    worker (asyncio pipeline), metadata (TMDB resolve),
+│                rename (pure plan_rename to Jellyfin layout + apply_plan mover)
 ├── routers/     system (/health), search (proxies), gateway (download/transfers/jobs/storage),
 │                webhooks (torrent-complete)
 ├── schemas/     jobs, errors

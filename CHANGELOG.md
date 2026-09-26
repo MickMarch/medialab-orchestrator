@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- RENAME places every download to Jellyfin's documented layout: movies as
+  `Title (Year)/Title (Year).ext` with other videos under `extras/`; shows as
+  `Title (Year)/Season NN/Title SNNEMM.ext` per episode file, `Season 00` for
+  specials, `SNNEMM-EMM` for multi-episode files, nested multi-season packs
+  placed by each file's own season. Subtitles follow their video. Non-media
+  files stay behind; the download folder is removed once it holds no video.
+  `dest_path` is now the folder Jellyfin scans (series or movie folder).
+- `SEASON_UNPARSEABLE` is replaced by `EPISODE_UNPARSEABLE`; any video file
+  without a parseable season and episode fails the job before anything moves.
+
 ## [0.6.0] - 2026-09-24
 
 ### Added
