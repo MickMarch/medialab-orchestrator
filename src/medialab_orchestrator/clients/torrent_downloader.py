@@ -44,6 +44,9 @@ class TorrentDownloaderClient(DownstreamClient):
             },
         )
 
+    async def clear_search_cache(self) -> Any:
+        return await self.delete(f"{API_PREFIX}/cache")
+
     async def transfers(self) -> Any:
         return await self.get(f"{API_PREFIX}/transfers")
 

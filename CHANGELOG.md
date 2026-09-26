@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `DELETE /search/cache` proxies torrent-downloader's cache clear so a client
+  can drop stale search result sets.
+
 ## [0.11.1] - 2026-09-26
 
 ### Fixed

@@ -257,3 +257,12 @@ class TestDeletion:
         )
         store.update_job(job.id, status=JobStatus.DELETED)
         assert app_client.post(f"/api/v1/jobs/{job.id}/retry").status_code == 409
+
+
+class TestSearchCacheProxy:
+    def test_clear_cache_proxied(self, app_client, torrent_client: AsyncMock):
+        torrent_client.clear_search_cache.return_value = {"status": "success", "cleared": True}
+        resp = app_client.delete("/api/v1/search/cache")
+        assert resp.status_code == 200
+        assert resp.json()["cleared"] is True
+        torrent_client.clear_search_cache.assert_awaited_once()

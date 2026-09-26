@@ -77,3 +77,16 @@ async def search_torrents(
             detail="Invalid season/episode combination for the requested media type.",
         ) from error
     return await ctx.torrent.search_torrents(query, scope)
+
+
+@router.delete(
+    "/search/cache",
+    status_code=fastapi_status.HTTP_200_OK,
+    summary="Clear torrent-downloader's search and TMDB cache. Proxied.",
+    responses=_SEARCH_ERROR_RESPONSES,
+)
+@limiter.limit(RATE_LIMIT_SEARCH)
+async def clear_search_cache(request: Request, ctx: AppContext = Depends(get_context)) -> Any:
+    # Cached result sets outlive a search fix or a new upload; the user can
+    # drop them instead of waiting for expiry. No job involved.
+    return await ctx.torrent.clear_search_cache()
