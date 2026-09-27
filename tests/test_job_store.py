@@ -181,6 +181,40 @@ class TestAddedColumns:
             release_name="n", media_type=MediaType.SHOW, tmdb_id=1, season=2, episode=3
         )
         assert (scoped.season, scoped.episode) == (2, 3)
+        assert old.redo_of is None
+        replacement = store.create_job(
+            release_name="n", media_type=MediaType.MOVIE, tmdb_id=7, redo_of="old1"
+        )
+        assert replacement.redo_of == "old1"
+
+
+class TestRedo:
+    def test_redo_of_defaults_to_none(self, store: JobStore):
+        job = store.create_job(release_name="r", media_type=MediaType.MOVIE, tmdb_id=1)
+        assert job.redo_of is None
+        assert store.redone_by([job.id]) == {}
+
+    def test_redone_by_maps_old_id_to_newest_replacement(self, store: JobStore):
+        old = store.create_job(release_name="r", media_type=MediaType.MOVIE, tmdb_id=1)
+        store.create_job(release_name="r", media_type=MediaType.MOVIE, tmdb_id=1, redo_of=old.id)
+        newest = store.create_job(
+            release_name="r", media_type=MediaType.MOVIE, tmdb_id=1, redo_of=old.id
+        )
+        assert store.redone_by([old.id, newest.id]) == {old.id: newest.id}
+
+    def test_redone_by_with_no_ids_is_empty(self, store: JobStore):
+        assert store.redone_by([]) == {}
+
+    def test_find_replacement_only_matches_unsubmitted_replacement(self, store: JobStore):
+        old = store.create_job(release_name="r", media_type=MediaType.MOVIE, tmdb_id=1)
+        assert store.find_replacement(old.id) is None
+        pending = store.create_job(
+            release_name="r", media_type=MediaType.MOVIE, tmdb_id=1, redo_of=old.id
+        )
+        found = store.find_replacement(old.id)
+        assert found is not None and found.id == pending.id
+        store.stamp_hash(pending.id, "a" * 40)
+        assert store.find_replacement(old.id) is None
 
 
 class TestScope:

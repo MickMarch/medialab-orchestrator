@@ -48,6 +48,10 @@ class JobView(BaseModel):
     seeding_removed_at: str | None = None
     placed_paths: list[str] = []
     deleted_at: str | None = None
+    redo_of: str | None = None
+    """The job this one replaces, when submitted through ``POST /jobs/{id}/redo``."""
+    redone_by: str | None = None
+    """The newest job that replaces this one; computed on read, never stored."""
     created_at: str
     updated_at: str
     progress: JobProgress | None = None

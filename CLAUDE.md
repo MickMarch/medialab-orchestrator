@@ -49,7 +49,9 @@ DONE                 removes the job's (media_type, tmdb_id) from the wishlist; 
 FAILED               any step error; last_error stored; POST /jobs/{id}/retry re-enters
                      from the last good state; the health poll retries it AUTO_RETRY_MAX times
 NEEDS_ATTENTION      the poll's budget for a job is spent; only a human retry moves it
-DELETED              undone via DELETE /jobs/{id}; terminal, kept for the record
+DELETED              undone via DELETE /jobs/{id}, or replaced via POST /jobs/{id}/redo (only from
+                     DONE: replacement row created first with redo_of, then the old job's deletion
+                     plan runs, then the new download is submitted); terminal, kept for the record
 ```
 
 Columns: `id` (surrogate uuid PK), `torrent_hash` (nullable, unique when
@@ -59,7 +61,10 @@ or backfilled by the webhook `%I`), `seq` (rowid, newest-first ordering),
 scope; both null is the whole title), `resolved_title`, `resolved_year`,
 `source_path` (the on-disk root name from qBittorrent's content path; the display
 `release_name` is not it), `dest_path`, `status`, `last_error`, `attempts`,
-`remediations`, `seeding_removed_at`, `created_at`, `updated_at`. A job is born at download submit, never at search. The webhook
+`remediations`, `seeding_removed_at`, `placed_paths`, `deleted_at`, `redo_of`
+(nullable; the id of the job this one replaces, its inverse `redone_by` is
+computed on read from one query per listing), `created_at`, `updated_at`. A
+job is born at download submit, never at search. The webhook
 resolves by hash, then updates by id; an unmatched hash orphan-inserts a job so
 the event is still tracked.
 
@@ -110,7 +115,9 @@ src/medialab_orchestrator/
 ├── store/       jobs (JobStatus, PipelineJob, JobStore over sqlite3),
 │                wishlist (WishlistStore, same DB file, wishlist_item table)
 ├── services/    worker (asyncio pipeline), health_poll (periodic remediation), deletion (undo a
-│                download: plan + execute), metadata (TMDB resolve),
+│                download: plan + execute), download (the submit path shared by
+│                POST /download and redo), redo (replace a DONE job; redone_by on read),
+│                metadata (TMDB resolve),
 │                rename (pure plan_rename to Jellyfin layout + apply_plan mover),
 │                discover (wishlist + best-effort library annotation),
 │                shows (episodes joined with library presence and queued jobs)

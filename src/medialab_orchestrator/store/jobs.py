@@ -11,7 +11,7 @@ import json
 import sqlite3
 import threading
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from enum import Enum
@@ -71,6 +71,8 @@ class PipelineJob(BaseModel):
     seeding_removed_at: str | None = None
     placed_paths: list[str] = []
     deleted_at: str | None = None
+    redo_of: str | None = None
+    """The id of the job this one replaces, set by ``POST /jobs/{id}/redo``."""
     created_at: str
     updated_at: str
 
@@ -98,6 +100,7 @@ CREATE TABLE IF NOT EXISTS pipeline_job (
     seeding_removed_at TEXT,
     placed_paths   TEXT,
     deleted_at     TEXT,
+    redo_of        TEXT,
     created_at     TEXT    NOT NULL,
     updated_at     TEXT    NOT NULL
 );
@@ -134,6 +137,7 @@ _ADDED_COLUMNS: dict[str, str] = {
     "deleted_at": "TEXT",
     "season": "INTEGER",
     "episode": "INTEGER",
+    "redo_of": "TEXT",
 }
 
 
@@ -213,13 +217,15 @@ class JobStore:
         status: JobStatus = JobStatus.DOWNLOAD_SUBMITTED,
         season: int | None = None,
         episode: int | None = None,
+        redo_of: str | None = None,
     ) -> PipelineJob:
         """Insert a new job at ``status`` (default ``DOWNLOAD_SUBMITTED``).
 
         A surrogate ``id`` is assigned here. ``torrent_hash`` is optional: it is
         omitted for a ``.torrent``-URL download whose hash is not yet known and
         stamped later via ``stamp_hash``. ``season`` and ``episode`` record the
-        search scope; both None means the whole title.
+        search scope; both None means the whole title. ``redo_of`` links a
+        replacement to the job it redoes.
         """
         now = _now()
         job_id = _new_id()
@@ -228,8 +234,8 @@ class JobStore:
                 """
                 INSERT INTO pipeline_job
                     (id, torrent_hash, release_name, media_type, tmdb_id, season, episode,
-                     status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     redo_of, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     job_id,
@@ -239,6 +245,7 @@ class JobStore:
                     tmdb_id,
                     season,
                     episode,
+                    redo_of,
                     status.value,
                     now,
                     now,
@@ -295,6 +302,35 @@ class JobStore:
             ).fetchall()
         return [_row_to_job(row) for row in rows]
 
+    def redone_by(self, job_ids: Iterable[str]) -> dict[str, str]:
+        """Map each given job id to the id of the newest job that redoes it.
+
+        One query for the whole listing; ids with no replacement are absent.
+        """
+        ids = list(job_ids)
+        if not ids:
+            return {}
+        placeholders = ", ".join("?" for _ in ids)
+        with self._cursor() as cur:
+            rows = cur.execute(
+                f"SELECT redo_of, id FROM pipeline_job WHERE redo_of IN ({placeholders})"
+                " ORDER BY seq ASC",
+                ids,
+            ).fetchall()
+        # Ascending seq so the last write per key is the newest replacement.
+        return {row["redo_of"]: row["id"] for row in rows}
+
+    def find_replacement(self, redo_of: str) -> PipelineJob | None:
+        """The newest replacement for ``redo_of`` whose download was never
+        submitted (still ``DOWNLOAD_SUBMITTED`` with no hash), else None."""
+        with self._cursor() as cur:
+            row = cur.execute(
+                "SELECT * FROM pipeline_job WHERE redo_of = ? AND torrent_hash IS NULL"
+                " AND status = ? ORDER BY seq DESC LIMIT 1",
+                (redo_of, JobStatus.DOWNLOAD_SUBMITTED.value),
+            ).fetchone()
+        return _row_to_job(row) if row is not None else None
+
     def update_job(self, job_id: str, **fields: object) -> PipelineJob:
         """Patch the named columns on a job (keyed by id), bumping ``updated_at``.
 
@@ -348,6 +384,7 @@ def _row_to_job(row: sqlite3.Row) -> PipelineJob:
         seeding_removed_at=row["seeding_removed_at"],
         placed_paths=json.loads(row["placed_paths"]) if row["placed_paths"] else [],
         deleted_at=row["deleted_at"],
+        redo_of=row["redo_of"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

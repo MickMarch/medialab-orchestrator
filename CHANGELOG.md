@@ -6,6 +6,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `POST /jobs/{id}/redo` replaces a `DONE` job with a newly picked torrent in
+  one action: body `DownloadRequest`; `409` `JOB_NOT_DONE` unless the job is
+  `DONE`, `409` when its deletion plan is refused, `422` when `media_type` or
+  `tmdb_id` differ from the job's. The replacement job is created first with
+  `redo_of` set and the old job's `season` and `episode`, then the old job is
+  deleted through the existing deletion service (`DELETED`), then the download
+  is submitted as `POST /download` would. Returns `202` `DownloadResponse`
+  with the new job. A failed deletion returns `502` `REDO_DELETION_FAILED`
+  with the old job untouched and the replacement kept, so the next redo reuses
+  it instead of creating another.
+- Job views carry `redo_of` (stored) and `redone_by` (the newest job replacing
+  this one, computed on read from one query per listing). The `pipeline_job`
+  table gains a nullable `redo_of` column, added to an existing database at
+  startup.
+
+### Changed
+
+- The submit path behind `POST /download` (create the row, resolve the title
+  best effort, forward the download, stamp the hash) moved to
+  `services/download.py` so redo and download share it.
+
 ## [0.18.0] - 2026-09-27
 
 ### Added
