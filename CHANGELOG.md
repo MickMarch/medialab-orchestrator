@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-09-27
+
 ### Added
 
 - `POST /jobs/{id}/redo` replaces a `DONE` job with a newly picked torrent in
