@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-09-27
+
 ### Added
 
 - `GET /shows/{tmdb_id}` returns a `ShowBrowseResponse`: the show's title,
