@@ -51,7 +51,7 @@ async def submit_download(
     # up front for a .torrent-URL source, so it is stamped from the downloader's
     # response below (or backfilled by the completion webhook).
     job = ctx.store.create_job(
-        release_name="",  # filled from the completion webhook's %N
+        release_name=payload.release_name.strip(),  # completion overwrites with %N
         media_type=payload.media_type,
         tmdb_id=payload.tmdb_id,
     )

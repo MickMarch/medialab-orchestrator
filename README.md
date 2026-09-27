@@ -40,7 +40,7 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 | `GET` | `/search/tmdb/{movie\|show}/{tmdb_id}` | Proxy. Show detail carries the season list. |
 | `DELETE` | `/search/cache` | Proxy to torrent-downloader `DELETE /cache`: drops cached search and TMDB result sets. |
 | `GET` | `/search/torrents?query=&media_type=[&season=&episode=]` | Proxy; scope validated via `TorrentSearchScope`. |
-| `POST` | `/download` | Body `{source_url, media_type, tmdb_id}`. Creates a `pipeline_job`, forwards to torrent-downloader, stamps the returned `torrent_hash`. Returns the job (`202`). |
+| `POST` | `/download` (`source_url`, `media_type`, `tmdb_id`, optional `release_name`) | Body `{source_url, media_type, tmdb_id}`. Creates a `pipeline_job`, forwards to torrent-downloader, stamps the returned `torrent_hash`. Returns the job (`202`). |
 | `GET` | `/transfers` | Live downloader transfers merged with job rows. |
 | `GET` | `/jobs[?status=]`, `GET /jobs/{id}` | Pipeline lifecycle view. |
 | `GET` | `/jobs/{id}/deletion-plan` | What a delete would remove: torrent, download folder, placed files, Jellyfin path, or a refusal reason. No side effects. |
