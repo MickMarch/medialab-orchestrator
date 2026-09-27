@@ -5,6 +5,7 @@ it can be missed when any hop is down at the moment of completion. Every tick
 reads the live transfer list once, joins it with the non-terminal jobs, and
 applies one rule per job (see ``docs/specs/stuck-download-remediation.md``):
 
+- actively downloading        -> DOWNLOAD_SUBMITTED becomes DOWNLOADING
 - errored download            -> resume, up to ``auto_resume_max`` times
 - completed but unnoticed     -> run the pipeline exactly as the webhook would
 - torrent gone from qBittorrent -> NEEDS_ATTENTION
@@ -33,6 +34,10 @@ COMPLETE_STATES = frozenset(
     {"uploading", "stalledUP", "queuedUP", "pausedUP", "stoppedUP", "forcedUP", "checkingUP"}
 )
 """qBittorrent states that only exist once the download reached 100%."""
+
+ACTIVE_DOWNLOAD_STATES = frozenset({"downloading", "stalledDL", "metaDL", "forcedDL"})
+"""qBittorrent states where the torrent is started and fetching (stalled
+means started but no peers right now). Queued, paused and checking are not."""
 
 _COMPLETE_PROGRESS = 1.0
 _AWAITING_COMPLETION = frozenset({JobStatus.DOWNLOAD_SUBMITTED, JobStatus.DOWNLOADING})
@@ -121,6 +126,11 @@ class HealthPoller:
             await self._resume(job, str(transfer.get("state")))
         elif is_complete(transfer):
             await self._run_missed_pipeline(job, transfer)
+        elif (
+            job.status is JobStatus.DOWNLOAD_SUBMITTED
+            and transfer.get("state") in ACTIVE_DOWNLOAD_STATES
+        ):
+            self._store.update_job(job.id, status=JobStatus.DOWNLOADING)
 
     async def _resume(self, job: PipelineJob, state: str) -> None:
         if job.remediations >= self._auto_resume_max:

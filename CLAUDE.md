@@ -36,7 +36,7 @@ go through it (shared volume, never a host shell-out).
 
 ```
 DOWNLOAD_SUBMITTED   POST /download accepted, forwarded to torrent-downloader
-DOWNLOADING          qBittorrent working (read-through from /transfers on request)
+DOWNLOADING          set by the health poll once qBittorrent is actively fetching
 STOP_SEEDING         webhook or poll -> record the on-disk root (content_path basename) if the
                      webhook did not carry it, then torrent-downloader DELETE /transfers/{hash}
 RESOLVE_META         GET /search/tmdb/{type}/{tmdb_id} -> canonical title + year
