@@ -97,6 +97,17 @@ Jellyfin recursively scans them and 404s on a sub-path of a registered root.
   safety net: resume errored downloads, run the pipeline for missed
   completions, retry FAILED jobs, flag `NEEDS_ATTENTION` past the budgets.
   `docs/decisions/0003-webhook-plus-poll.md`.
+- **Follow poll beside the health poll.** `services/follow.py` is a second
+  loop with the same shape (interval re-read from config every sleep, `tick`
+  never raises, one show raising is logged and skipped). `wanted_episodes`
+  is pure and shared by the poll and `GET /watchlist/show/{id}/episodes`;
+  the pick rule lives in torrent-downloader; submission goes through
+  `services/download.py` so a follow job is an ordinary job. A downloader
+  error stops one show for the tick; `mark_checked` always runs. Spec:
+  `docs/specs/watchlist.md`.
+- **Discord webhook, not the bot.** `services/notify.py` is the one httpx
+  use outside `clients/`: a webhook has no key or error envelope, so the
+  downstream client base does not fit. It never raises; no URL, no notice.
 - **Search proxies create no job.** `GET /search/*` and `GET /discover/*`
   are stateless passthroughs, the accepted exception to "every gateway
   endpoint binds a job". The watchlist is user state, not a job.
@@ -119,19 +130,23 @@ src/medialab_orchestrator/
 │                wishlist_item at startup, plus follow_submission keyed by show, season, episode)
 ├── services/    worker (asyncio pipeline), health_poll (periodic remediation), deletion (undo a
 │                download: plan + execute), download (the submit path shared by
-│                POST /download and redo), redo (replace a DONE job; redone_by on read),
-│                metadata (TMDB resolve),
+│                POST /download, redo and the follow poll), redo (replace a DONE job;
+│                redone_by on read), metadata (TMDB resolve),
 │                rename (pure plan_rename to Jellyfin layout + apply_plan mover),
 │                discover (watchlist kind + best-effort library annotation),
-│                shows (episodes joined with library presence and queued jobs)
+│                shows (episodes joined with library presence and queued jobs),
+│                follow (wanted_episodes + FollowPoller: pick and auto-submit per follow),
+│                notify (Discord webhook notice; the one httpx use outside clients/)
 ├── routers/     system (/health), search (proxies), discover (annotated proxies), shows, watchlist
-│                (saved titles, follow / unfollow / pause / resume),
+│                (saved titles, follow / unfollow / pause / resume / check, the episode view
+│                with submitted + wanted, Retry),
 │                settings (suite settings, local + relayed),
 │                gateway (download/transfers/jobs/storage),
 │                webhooks (torrent-complete)
-├── schemas/     jobs, errors
+├── schemas/     jobs, errors, watchlist (FollowCheckResponse)
 ├── scripts/     notify_complete.py (standalone relay)
-└── main.py      app, lifespan (worker), middleware, exception handlers, routers under /api/v1
+└── main.py      app, lifespan (health and follow pollers), middleware, exception handlers,
+                 routers under /api/v1
 ```
 
 ## Testing patterns

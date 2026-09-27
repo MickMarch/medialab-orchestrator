@@ -3,6 +3,7 @@ DELETE are idempotent; a finished download removes a saved title but never a
 follow (see the pipeline worker). A follow needs the saved row first: the UI
 saves, then follows, two calls."""
 
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -10,17 +11,22 @@ from fastapi import status as fastapi_status
 from medialab_contracts import (
     FollowRequest,
     MediaType,
+    ShowBrowseResponse,
     WatchlistAddRequest,
     WatchlistItem,
     WatchlistKind,
     WatchlistResponse,
 )
 
+from medialab_orchestrator.core.config import config
 from medialab_orchestrator.core.deps import AppContext, get_context
 from medialab_orchestrator.core.errors import AppException, ErrorCode
-from medialab_orchestrator.core.limiter import RATE_LIMIT_DEFAULT, limiter
+from medialab_orchestrator.core.limiter import RATE_LIMIT_DEFAULT, RATE_LIMIT_SEARCH, limiter
 from medialab_orchestrator.schemas.errors import ErrorResponse
+from medialab_orchestrator.schemas.watchlist import FollowCheckResponse
 from medialab_orchestrator.services.discover import annotate_watchlist
+from medialab_orchestrator.services.follow import annotate_follow
+from medialab_orchestrator.services.shows import browse_show
 from medialab_orchestrator.store import WatchlistItemNotFoundError
 
 router = APIRouter(prefix="/watchlist", tags=["Watchlist"])
@@ -35,6 +41,13 @@ _FOLLOW_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     **_WATCHLIST_ERROR_RESPONSES,
     404: {"model": ErrorResponse, "description": "The show is not on the watchlist."},
     422: {"model": ErrorResponse, "description": "Only a show can be followed; invalid body."},
+}
+
+_FOLLOWED_SHOW_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **_FOLLOW_ERROR_RESPONSES,
+    404: {"model": ErrorResponse, "description": "The show is not followed."},
+    502: {"model": ErrorResponse, "description": "Downstream worker unavailable."},
+    503: {"model": ErrorResponse, "description": "TMDB unavailable (TMDB_UNAVAILABLE)."},
 }
 
 
@@ -190,3 +203,85 @@ def _set_paused(
         return ctx.watchlist.set_paused(tmdb_id, paused)
     except WatchlistItemNotFoundError as exc:
         raise _not_found(exc) from exc
+
+
+def _require_followed(ctx: AppContext, media_type: MediaType, tmdb_id: int) -> WatchlistItem:
+    _require_show(media_type)
+    item = ctx.watchlist.get(MediaType.SHOW, tmdb_id)
+    if item is None or item.follow is None:
+        raise AppException(
+            status_code=fastapi_status.HTTP_404_NOT_FOUND,
+            code=ErrorCode.WATCHLIST_ITEM_NOT_FOUND,
+            detail=f"Show {tmdb_id} is not followed.",
+        )
+    return item
+
+
+@router.get(
+    "/{media_type}/{tmdb_id}/episodes",
+    response_model=ShowBrowseResponse,
+    status_code=fastapi_status.HTTP_200_OK,
+    summary="A followed show's episodes with what the follow submitted and still wants.",
+    responses=_FOLLOWED_SHOW_ERROR_RESPONSES,
+)
+@limiter.limit(RATE_LIMIT_SEARCH)
+async def followed_show_episodes(
+    request: Request,
+    media_type: MediaType,
+    tmdb_id: int,
+    ctx: AppContext = Depends(get_context),
+) -> ShowBrowseResponse:
+    item = _require_followed(ctx, media_type, tmdb_id)
+    assert item.follow is not None
+    browse = await browse_show(
+        tmdb_id,
+        torrent=ctx.torrent,
+        jellyfin=ctx.jellyfin,
+        store=ctx.store,
+        watchlist=ctx.watchlist,
+    )
+    return annotate_follow(
+        browse,
+        item.follow,
+        ctx.watchlist.submissions(tmdb_id),
+        now=datetime.now(UTC),
+        delay_hours=int(config.follow_delay_hours),
+    )
+
+
+@router.delete(
+    "/{media_type}/{tmdb_id}/episodes/{season}/{episode}/submission",
+    status_code=fastapi_status.HTTP_204_NO_CONTENT,
+    summary="Retry: forget the submission so the next follow check may fetch the episode again.",
+    responses=_FOLLOW_ERROR_RESPONSES,
+)
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def clear_episode_submission(
+    request: Request,
+    media_type: MediaType,
+    tmdb_id: int,
+    season: int,
+    episode: int,
+    ctx: AppContext = Depends(get_context),
+) -> Response:
+    _require_show(media_type)
+    ctx.watchlist.clear_submission(tmdb_id, season, episode)
+    return Response(status_code=fastapi_status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{media_type}/{tmdb_id}/follow/check",
+    response_model=FollowCheckResponse,
+    status_code=fastapi_status.HTTP_200_OK,
+    summary="Check now: run one follow tick for this show and return what it submitted.",
+    responses=_FOLLOWED_SHOW_ERROR_RESPONSES,
+)
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def check_follow(
+    request: Request,
+    media_type: MediaType,
+    tmdb_id: int,
+    ctx: AppContext = Depends(get_context),
+) -> FollowCheckResponse:
+    item = _require_followed(ctx, media_type, tmdb_id)
+    return FollowCheckResponse(submitted=await ctx.follow_poller.check_show(item))

@@ -39,17 +39,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     context = build_context()
     app.state.context = context
     app_logger.info("medialab-orchestrator context ready.")
-    poll_task = None
+    tasks: list[asyncio.Task[None]] = []
     if context.poller is not None:
-        poll_task = asyncio.create_task(context.poller.run())
+        tasks.append(asyncio.create_task(context.poller.run()))
         app_logger.info("Health poll every %.0fs (0 pauses).", config.health_poll_interval_seconds)
+    tasks.append(asyncio.create_task(context.follow_poller.run()))
+    app_logger.info("Follow poll every %ds (0 pauses).", config.follow_poll_interval_seconds)
     try:
         yield
     finally:
-        if poll_task is not None:
-            poll_task.cancel()
+        for task in tasks:
+            task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await poll_task
+                await task
 
 
 app: FastAPI = FastAPI(

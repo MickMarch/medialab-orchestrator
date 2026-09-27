@@ -6,6 +6,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The follow poll (MickMarch/medialab#24): `services/follow.py` ticks every
+  `follow_poll_interval_seconds` over every unpaused followed show, computes
+  the wanted episodes (on or after the start point, aired at least
+  `follow_delay_hours` ago, not in the library, not queued, never submitted),
+  asks torrent-downloader's pick route for each in air order with
+  `follow_minimum_seeders`, and submits the candidate through the
+  `POST /download` path, at most `follow_max_submissions_per_tick` per show
+  per tick. A downloader error stops that show for the tick; one show
+  raising never stops the sweep; `last_checked_at` and `last_submitted` are
+  stamped.
+- `TorrentDownloaderClient.pick_torrent`: `GET /search/torrents/pick`,
+  `None` on `NO_CANDIDATE`.
+- Runtime settings `follow_poll_interval_seconds`,
+  `follow_max_submissions_per_tick`, `follow_delay_hours` and
+  `follow_minimum_seeders`, applied at the next follow tick.
+- `DISCORD_NOTIFY_WEBHOOK_URL` (optional): each follow submission posts
+  `Following <title>: submitted S02E05 (<release name>)` to the channel
+  webhook; a failed notice is logged, never raised.
+- Watchlist routes: `GET /watchlist/show/{tmdb_id}/episodes` (the show view
+  with `submitted` and `wanted` per episode; `404` unless followed),
+  `DELETE /watchlist/show/{tmdb_id}/episodes/{season}/{episode}/submission`
+  (Retry, `204`), and `POST /watchlist/show/{tmdb_id}/follow/check` (runs one
+  check now and returns `{"submitted": [...]}`).
+
 ## [1.0.0] - 2026-09-27
 
 ### Added

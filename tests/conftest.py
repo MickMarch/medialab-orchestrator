@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClient
 from medialab_orchestrator.core import auth, deps
 from medialab_orchestrator.core.deps import AppContext, get_context
+from medialab_orchestrator.services.follow import FollowPoller
 from medialab_orchestrator.services.worker import PipelineWorker
 from medialab_orchestrator.store import JobStore, WatchlistStore
 
@@ -56,12 +57,19 @@ def context(
         torrent_client=torrent_client,
         jellyfin_client=jellyfin_client,
     )
+    follow_poller = FollowPoller(
+        store=store,
+        watchlist=watchlist,
+        torrent_client=torrent_client,
+        jellyfin_client=jellyfin_client,
+    )
     return AppContext(
         store=store,
         watchlist=watchlist,
         torrent=torrent_client,
         jellyfin=jellyfin_client,
         worker=worker,
+        follow_poller=follow_poller,
     )
 
 
