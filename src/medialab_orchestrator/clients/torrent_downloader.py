@@ -48,6 +48,15 @@ class TorrentDownloaderClient(DownstreamClient):
             },
         )
 
+    async def settings(self) -> Any:
+        return await self.get(f"{API_PREFIX}/settings")
+
+    async def set_setting(self, key: str, value: Any) -> Any:
+        return await self.put(f"{API_PREFIX}/settings/{key}", json={"value": value})
+
+    async def reset_setting(self, key: str) -> Any:
+        return await self.delete(f"{API_PREFIX}/settings/{key}", accept=(404, 422))
+
     async def clear_search_cache(self) -> Any:
         return await self.delete(f"{API_PREFIX}/cache")
 

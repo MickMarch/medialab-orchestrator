@@ -20,6 +20,7 @@ import asyncio
 from typing import Any
 
 from medialab_orchestrator.clients import TorrentDownloaderClient
+from medialab_orchestrator.core.config import config
 from medialab_orchestrator.core.errors import AppException
 from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.services.worker import PipelineWorker
@@ -45,6 +46,9 @@ def is_complete(transfer: dict[str, Any]) -> bool:
     )
 
 
+PAUSED_POLL_RECHECK_SECONDS = 60.0
+
+
 class HealthPoller:
     def __init__(
         self,
@@ -52,19 +56,40 @@ class HealthPoller:
         store: JobStore,
         torrent_client: TorrentDownloaderClient,
         worker: PipelineWorker,
-        auto_resume_max: int,
-        auto_retry_max: int,
+        auto_resume_max: int | None = None,
+        auto_retry_max: int | None = None,
     ) -> None:
         self._store = store
         self._torrent = torrent_client
         self._worker = worker
-        self._auto_resume_max = auto_resume_max
-        self._auto_retry_max = auto_retry_max
+        # None means "read config on every use", so a runtime settings change
+        # applies at the next tick. Tests pin explicit values.
+        self._auto_resume_max_fixed = auto_resume_max
+        self._auto_retry_max_fixed = auto_retry_max
 
-    async def run(self, interval_seconds: float) -> None:
-        """Tick forever. Cancelled by the app lifespan on shutdown."""
+    @property
+    def _auto_resume_max(self) -> int:
+        if self._auto_resume_max_fixed is not None:
+            return self._auto_resume_max_fixed
+        return int(config.auto_resume_max)
+
+    @property
+    def _auto_retry_max(self) -> int:
+        if self._auto_retry_max_fixed is not None:
+            return self._auto_retry_max_fixed
+        return int(config.auto_retry_max)
+
+    async def run(self) -> None:
+        """Tick forever. The interval is read from config before every sleep
+        so a settings change applies without a restart; 0 pauses the poll
+        (checked again after ``PAUSED_POLL_RECHECK_SECONDS``). Cancelled by the
+        app lifespan on shutdown."""
         while True:
-            await asyncio.sleep(interval_seconds)
+            interval = float(config.health_poll_interval_seconds)
+            if interval <= 0:
+                await asyncio.sleep(PAUSED_POLL_RECHECK_SECONDS)
+                continue
+            await asyncio.sleep(interval)
             await self.tick()
 
     async def tick(self) -> None:

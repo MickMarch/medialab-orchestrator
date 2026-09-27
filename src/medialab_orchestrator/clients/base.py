@@ -90,6 +90,9 @@ class DownstreamClient:
     async def post(self, path: str, *, json: dict[str, Any] | None = None) -> Any:
         return await self.request("POST", path, json=json)
 
+    async def put(self, path: str, *, json: dict[str, Any] | None = None) -> Any:
+        return await self.request("PUT", path, json=json, accept=(404, 422))
+
     async def delete(self, path: str, *, accept: tuple[int, ...] = ()) -> Any:
         return await self.request("DELETE", path, accept=accept)
 

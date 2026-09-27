@@ -21,7 +21,7 @@ from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.limiter import limiter
 from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.core.middleware import RequestLoggingMiddleware
-from medialab_orchestrator.routers import gateway, search, system, webhooks
+from medialab_orchestrator.routers import gateway, search, settings, system, webhooks
 
 
 @asynccontextmanager
@@ -31,9 +31,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.context = context
     app_logger.info("medialab-orchestrator context ready.")
     poll_task = None
-    if context.poller is not None and config.health_poll_interval_seconds > 0:
-        poll_task = asyncio.create_task(context.poller.run(config.health_poll_interval_seconds))
-        app_logger.info("Health poll every %.0fs.", config.health_poll_interval_seconds)
+    if context.poller is not None:
+        poll_task = asyncio.create_task(context.poller.run())
+        app_logger.info("Health poll every %.0fs (0 pauses).", config.health_poll_interval_seconds)
     try:
         yield
     finally:
@@ -112,6 +112,7 @@ async def validation_exception_handler(
 app.include_router(system.router, prefix=API_PREFIX)
 app.include_router(search.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(gateway.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
+app.include_router(settings.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(webhooks.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 
 
