@@ -55,7 +55,8 @@ DELETED              undone via DELETE /jobs/{id}; terminal, kept for the record
 Columns: `id` (surrogate uuid PK), `torrent_hash` (nullable, unique when
 present, lowercase; stamped from the downloader's `POST /download` response
 or backfilled by the webhook `%I`), `seq` (rowid, newest-first ordering),
-`release_name`, `media_type`, `tmdb_id`, `resolved_title`, `resolved_year`,
+`release_name`, `media_type`, `tmdb_id`, `season` and `episode` (nullable search
+scope; both null is the whole title), `resolved_title`, `resolved_year`,
 `source_path` (the on-disk root name from qBittorrent's content path; the display
 `release_name` is not it), `dest_path`, `status`, `last_error`, `attempts`,
 `remediations`, `seeding_removed_at`, `created_at`, `updated_at`. A job is born at download submit, never at search. The webhook
@@ -111,8 +112,9 @@ src/medialab_orchestrator/
 ├── services/    worker (asyncio pipeline), health_poll (periodic remediation), deletion (undo a
 │                download: plan + execute), metadata (TMDB resolve),
 │                rename (pure plan_rename to Jellyfin layout + apply_plan mover),
-│                discover (wishlist + best-effort library annotation)
-├── routers/     system (/health), search (proxies), discover (annotated proxies), wishlist,
+│                discover (wishlist + best-effort library annotation),
+│                shows (episodes joined with library presence and queued jobs)
+├── routers/     system (/health), search (proxies), discover (annotated proxies), shows, wishlist,
 │                settings (suite settings, local + relayed),
 │                gateway (download/transfers/jobs/storage),
 │                webhooks (torrent-complete)

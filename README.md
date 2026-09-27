@@ -42,10 +42,11 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 | `GET` | `/search/torrents?query=&media_type=[&season=&episode=]` | Proxy; scope validated via `TorrentSearchScope`. |
 | `GET` | `/discover/{movie\|show}[?genre=&page=]` | Proxy to torrent-downloader: trending titles, or popular in `genre`. Sets `on_wishlist` from the wishlist and `in_library` from medialab-jellyfin (best effort, false on failure). `503` `TMDB_UNAVAILABLE` when TMDB is down. No job created. |
 | `GET` | `/discover/{movie\|show}/genres` | Proxy: TMDB genre ids and names, usable as `genre`. |
+| `GET` | `/shows/{tmdb_id}` | A show's header, seasons and episodes (`ShowBrowseResponse`). Each episode carries `aired`, `in_library` (best effort, false on failure) and `queued_job_id`, the newest non-terminal job whose `season`/`episode` scope covers it. `503` `TMDB_UNAVAILABLE` when TMDB is down. No job created. |
 | `GET` | `/wishlist[?media_type=]` | The shared wishlist, newest first, with `in_library`. |
 | `PUT` | `/wishlist/{movie\|show}/{tmdb_id}` | Body `{title, year, poster_path, overview}`. Idempotent upsert, `200` with the item; a repeat keeps the original `added_at`. |
 | `DELETE` | `/wishlist/{movie\|show}/{tmdb_id}` | Idempotent, `204` even when absent. A job reaching `DONE` also removes its title. |
-| `POST` | `/download` (`source_url`, `media_type`, `tmdb_id`, optional `release_name`) | Body `{source_url, media_type, tmdb_id}`. Creates a `pipeline_job`, forwards to torrent-downloader, stamps the returned `torrent_hash`. Returns the job (`202`). |
+| `POST` | `/download` | Body `{source_url, media_type, tmdb_id}`, optional `release_name`, `season`, `episode` (the searched scope; both absent means the whole title). Creates a `pipeline_job`, forwards to torrent-downloader, stamps the returned `torrent_hash`. Returns the job (`202`). |
 | `GET` | `/transfers` | Live downloader transfers merged with job rows. |
 | `GET` | `/jobs[?status=]`, `GET /jobs/{id}` | Pipeline lifecycle view. Jobs in `DOWNLOAD_SUBMITTED` or `DOWNLOADING` carry live `progress` (`progress`, `download_speed`, `eta_seconds`, `state`) from one transfers read, or `null` when the read fails; an actively fetching submitted job is moved to `DOWNLOADING` on read. |
 | `GET` | `/jobs/{id}/deletion-plan` | What a delete would remove: torrent, download folder, placed files, Jellyfin path, or a refusal reason. No side effects. |

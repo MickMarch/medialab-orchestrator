@@ -57,6 +57,9 @@ class PipelineJob(BaseModel):
     release_name: str
     media_type: MediaType
     tmdb_id: int
+    season: int | None = None
+    """Search scope: None with ``episode`` None means the whole title."""
+    episode: int | None = None
     resolved_title: str | None = None
     resolved_year: int | None = None
     source_path: str | None = None
@@ -82,6 +85,8 @@ CREATE TABLE IF NOT EXISTS pipeline_job (
     release_name   TEXT    NOT NULL,
     media_type     TEXT    NOT NULL,
     tmdb_id        INTEGER NOT NULL,
+    season         INTEGER,
+    episode        INTEGER,
     resolved_title TEXT,
     resolved_year  INTEGER,
     source_path    TEXT,
@@ -127,6 +132,8 @@ _ADDED_COLUMNS: dict[str, str] = {
     "seeding_removed_at": "TEXT",
     "placed_paths": "TEXT",
     "deleted_at": "TEXT",
+    "season": "INTEGER",
+    "episode": "INTEGER",
 }
 
 
@@ -204,12 +211,15 @@ class JobStore:
         tmdb_id: int,
         torrent_hash: str | None = None,
         status: JobStatus = JobStatus.DOWNLOAD_SUBMITTED,
+        season: int | None = None,
+        episode: int | None = None,
     ) -> PipelineJob:
         """Insert a new job at ``status`` (default ``DOWNLOAD_SUBMITTED``).
 
         A surrogate ``id`` is assigned here. ``torrent_hash`` is optional: it is
         omitted for a ``.torrent``-URL download whose hash is not yet known and
-        stamped later via ``stamp_hash``.
+        stamped later via ``stamp_hash``. ``season`` and ``episode`` record the
+        search scope; both None means the whole title.
         """
         now = _now()
         job_id = _new_id()
@@ -217,9 +227,9 @@ class JobStore:
             cur.execute(
                 """
                 INSERT INTO pipeline_job
-                    (id, torrent_hash, release_name, media_type, tmdb_id,
+                    (id, torrent_hash, release_name, media_type, tmdb_id, season, episode,
                      status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     job_id,
@@ -227,6 +237,8 @@ class JobStore:
                     release_name,
                     media_type.value,
                     tmdb_id,
+                    season,
+                    episode,
                     status.value,
                     now,
                     now,
@@ -274,6 +286,15 @@ class JobStore:
             rows = cur.execute(query, params).fetchall()
         return [_row_to_job(row) for row in rows]
 
+    def list_jobs_for_title(self, media_type: MediaType, tmdb_id: int) -> list[PipelineJob]:
+        """Every job for one title, newest first, whatever its status."""
+        with self._cursor() as cur:
+            rows = cur.execute(
+                "SELECT * FROM pipeline_job WHERE media_type = ? AND tmdb_id = ? ORDER BY seq DESC",
+                (media_type.value, tmdb_id),
+            ).fetchall()
+        return [_row_to_job(row) for row in rows]
+
     def update_job(self, job_id: str, **fields: object) -> PipelineJob:
         """Patch the named columns on a job (keyed by id), bumping ``updated_at``.
 
@@ -314,6 +335,8 @@ def _row_to_job(row: sqlite3.Row) -> PipelineJob:
         release_name=row["release_name"],
         media_type=MediaType(row["media_type"]),
         tmdb_id=row["tmdb_id"],
+        season=row["season"],
+        episode=row["episode"],
         resolved_title=row["resolved_title"],
         resolved_year=row["resolved_year"],
         source_path=row["source_path"],

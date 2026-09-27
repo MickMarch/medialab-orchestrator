@@ -21,6 +21,10 @@ class DownloadRequest(BaseModel):
     # The picked torrent's name, so the job is identifiable while it downloads;
     # completion overwrites it with the on-disk name.
     release_name: str = ""
+    # The scope the torrent was searched with: both None for a whole series or
+    # a movie, season alone for a season pack, both for a single episode.
+    season: int | None = None
+    episode: int | None = None
 
 
 class JobView(BaseModel):
@@ -31,6 +35,8 @@ class JobView(BaseModel):
     release_name: str
     media_type: MediaType
     tmdb_id: int
+    season: int | None = None
+    episode: int | None = None
     resolved_title: str | None
     resolved_year: int | None
     source_path: str | None

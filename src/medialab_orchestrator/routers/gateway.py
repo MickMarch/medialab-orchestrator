@@ -55,6 +55,8 @@ async def submit_download(
         release_name=payload.release_name.strip(),  # completion overwrites with %N
         media_type=payload.media_type,
         tmdb_id=payload.tmdb_id,
+        season=payload.season,
+        episode=payload.episode,
     )
     # Resolve the canonical title now (the tmdb_id is known) so /jobs shows
     # "Title (Year)" from submit. Best-effort: a metadata hiccup must not block

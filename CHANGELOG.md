@@ -6,6 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `GET /shows/{tmdb_id}` returns a `ShowBrowseResponse`: the show's title,
+  year, poster and overview from TMDB detail, its seasons and every episode
+  (from torrent-downloader's episode listing) flagged `aired` (air date on or
+  before today, UTC), `in_library` (best effort: a medialab-jellyfin lookup
+  failure leaves it false) and `queued_job_id` (the newest non-terminal job
+  whose scope covers the episode; a whole-series job covers every episode, a
+  season job its season). Series-level `on_wishlist` and `in_library` as on
+  discover. `503` `TMDB_UNAVAILABLE` relayed from the downloader.
+- `POST /download` accepts optional `season` and `episode`, the scope the
+  torrent was searched with; both are stored on the job and returned on every
+  job view. Existing callers without them keep working. The `pipeline_job`
+  table gains nullable `season` and `episode` columns, added to an existing
+  database at startup.
+
+### Changed
+
+- medialab-contracts dependency bumped to v0.11.0 (`Episode`, `Season`,
+  `EpisodeKey`, `EpisodeState`, `SeriesEpisodesResponse`,
+  `LibraryEpisodesResponse`, `ShowBrowseResponse`).
+
 ## [0.17.0] - 2026-09-27
 
 ### Added
