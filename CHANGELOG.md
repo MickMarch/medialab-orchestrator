@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-09-27
+
 ### Fixed
 
 - Jobs now move from `DOWNLOAD_SUBMITTED` to `DOWNLOADING` when the health
