@@ -11,6 +11,7 @@ from medialab_contracts import (
     MediaType,
     SeriesEpisodesResponse,
     TorrentSearchScope,
+    VideosResponse,
 )
 
 from medialab_orchestrator.clients.base import DownstreamClient
@@ -44,6 +45,17 @@ class TorrentDownloaderClient(DownstreamClient):
             relay=_DISCOVER_RELAYED,
         )
         return SeriesEpisodesResponse.model_validate(body)
+
+    async def videos(
+        self, media_type: MediaType, tmdb_id: int, *, season: int | None = None
+    ) -> VideosResponse:
+        params = {"season": season} if season is not None else None
+        body = await self.get(
+            f"{API_PREFIX}/search/tmdb/{media_type.value}/{tmdb_id}/videos",
+            params=params,
+            relay=_DISCOVER_RELAYED,
+        )
+        return VideosResponse.model_validate(body)
 
     async def discover(
         self, media_type: MediaType, *, genre: int | None = None, page: int | None = None
