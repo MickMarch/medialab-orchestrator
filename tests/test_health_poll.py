@@ -121,6 +121,32 @@ class TestAwaitingCompletion:
         await poller.tick()
         torrent_client.resume_transfer.assert_not_awaited()
 
+    @pytest.mark.parametrize("state", ["downloading", "stalledDL", "metaDL", "forcedDL"])
+    async def test_active_transfer_moves_submitted_to_downloading(
+        self, poller, store, torrent_client, worker, state
+    ):
+        job = _seed(store, JobStatus.DOWNLOAD_SUBMITTED)
+        torrent_client.transfers.return_value = {"data": [_transfer(state, progress=0.2)]}
+        await poller.tick()
+        assert store.get_job_by_id(job.id).status is JobStatus.DOWNLOADING
+        worker.process.assert_not_awaited()
+
+    @pytest.mark.parametrize("state", ["queuedDL", "pausedDL", "stoppedDL", "checkingDL"])
+    async def test_waiting_transfer_stays_submitted(self, poller, store, torrent_client, state):
+        job = _seed(store, JobStatus.DOWNLOAD_SUBMITTED)
+        torrent_client.transfers.return_value = {"data": [_transfer(state, progress=0.0)]}
+        await poller.tick()
+        assert store.get_job_by_id(job.id).status is JobStatus.DOWNLOAD_SUBMITTED
+
+    async def test_downloading_job_is_not_rewritten(self, poller, store, torrent_client):
+        job = _seed(store, JobStatus.DOWNLOADING)
+        before = store.get_job_by_id(job.id).updated_at
+        torrent_client.transfers.return_value = {"data": [_transfer("downloading", progress=0.6)]}
+        await poller.tick()
+        after = store.get_job_by_id(job.id)
+        assert after.status is JobStatus.DOWNLOADING
+        assert after.updated_at == before
+
     async def test_job_without_hash_is_left_alone(self, poller, store, torrent_client, worker):
         store.create_job(release_name="x", media_type=MediaType.MOVIE, tmdb_id=1)
         torrent_client.transfers.return_value = {"data": []}

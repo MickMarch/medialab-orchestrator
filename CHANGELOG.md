@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Jobs now move from `DOWNLOAD_SUBMITTED` to `DOWNLOADING` when the health
+  poll sees qBittorrent actively fetching the torrent.
+
 ## [0.16.0] - 2026-09-27
 
 ### Added
