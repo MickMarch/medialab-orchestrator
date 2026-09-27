@@ -21,6 +21,11 @@ class ErrorCode(str, Enum):
     EPISODE_UNPARSEABLE = "EPISODE_UNPARSEABLE"
     SOURCE_NOT_FOUND = "SOURCE_NOT_FOUND"
     RENAME_INCOMPLETE = "RENAME_INCOMPLETE"
+    # POST /jobs/{id}/redo: only a DONE job can be redone.
+    JOB_NOT_DONE = "JOB_NOT_DONE"
+    # POST /jobs/{id}/redo: the old job's deletion failed; the replacement
+    # row exists and the old job is untouched, so the redo can be retried.
+    REDO_DELETION_FAILED = "REDO_DELETION_FAILED"
     # Relayed from torrent-downloader when TMDB is unconfigured or unreachable.
     TMDB_UNAVAILABLE = "TMDB_UNAVAILABLE"
 

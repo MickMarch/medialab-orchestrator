@@ -2,9 +2,12 @@
 
 from unittest.mock import AsyncMock
 
+import pytest
 from medialab_contracts import MediaType
 
+from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.routers import gateway as gateway_module
+from medialab_orchestrator.services import deletion as deletion_module
 from medialab_orchestrator.store import JobStatus, JobStore
 
 HASH = "abcdef0123456789abcdef0123456789abcdef01"
@@ -70,8 +73,6 @@ class TestDownload:
         self, app_client, store: JobStore, torrent_client: AsyncMock
     ):
         # A metadata hiccup must not block the actual download.
-        from medialab_orchestrator.core.errors import AppException, ErrorCode
-
         torrent_client.download.return_value = {"status": "success", "torrent_hash": HASH}
         torrent_client.tmdb_detail.side_effect = AppException(
             status_code=502, code=ErrorCode.DOWNSTREAM_UNAVAILABLE, detail="tmdb down"
@@ -335,3 +336,174 @@ class TestDownloadScope:
         assert resp.status_code == 202
         assert (resp.json()["job"]["season"], resp.json()["job"]["episode"]) == (None, None)
         assert store.get_job_by_hash(HASH).season is None
+
+
+class TestRedo:
+    """``POST /jobs/{id}/redo``: create the replacement, delete the old, submit the new."""
+
+    NEW_HASH = "0123456789abcdef0123456789abcdef01234567"
+    NEW_MAGNET = f"magnet:?xt=urn:btih:{NEW_HASH}&dn=Bar"
+
+    @pytest.fixture
+    def media(self, tmp_path, mocker):
+        mocker.patch.object(deletion_module.config, "media_mount_path", str(tmp_path))
+        (tmp_path / "Movies").mkdir()
+        (tmp_path / "Shows").mkdir()
+        return tmp_path
+
+    def _done_movie(self, store: JobStore, media):
+        job = store.create_job(
+            torrent_hash=HASH, release_name="Foo.2021", media_type=MediaType.MOVIE, tmdb_id=1
+        )
+        return store.update_job(
+            job.id,
+            status=JobStatus.DONE,
+            seeding_removed_at="t",
+            dest_path=str(media / "Movies" / "Foo (2021)"),
+            placed_paths=[str(media / "Movies" / "Foo (2021)" / "Foo (2021).mkv")],
+        )
+
+    def _done_episode(self, store: JobStore, media):
+        job = store.create_job(
+            torrent_hash=HASH,
+            release_name="Show.S02E05",
+            media_type=MediaType.SHOW,
+            tmdb_id=2,
+            season=2,
+            episode=5,
+        )
+        return store.update_job(
+            job.id,
+            status=JobStatus.DONE,
+            seeding_removed_at="t",
+            dest_path=str(media / "Shows" / "Show (2019)"),
+            placed_paths=[str(media / "Shows" / "Show (2019)" / "Season 02" / "Show S02E05.mkv")],
+        )
+
+    def _redo(self, app_client, job_id: str, media_type: str, tmdb_id: int):
+        return app_client.post(
+            f"/api/v1/jobs/{job_id}/redo",
+            json={
+                "source_url": self.NEW_MAGNET,
+                "media_type": media_type,
+                "tmdb_id": tmdb_id,
+                "release_name": "Bar.2021",
+            },
+        )
+
+    def test_unknown_job_is_404(self, app_client, media):
+        assert self._redo(app_client, "nope", "movie", 1).status_code == 404
+
+    def test_non_done_job_is_409(self, app_client, store: JobStore, media, torrent_client):
+        job = store.create_job(
+            torrent_hash=HASH, release_name="Foo.2021", media_type=MediaType.MOVIE, tmdb_id=1
+        )
+        resp = self._redo(app_client, job.id, "movie", 1)
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "JOB_NOT_DONE"
+        assert len(store.list_jobs()) == 1
+        torrent_client.download.assert_not_awaited()
+
+    def test_refused_plan_is_409(self, app_client, store: JobStore, media, torrent_client):
+        # A DONE show without placed_paths cannot be deleted safely.
+        job = store.create_job(
+            torrent_hash=HASH, release_name="Show.S01", media_type=MediaType.SHOW, tmdb_id=2
+        )
+        store.update_job(
+            job.id,
+            status=JobStatus.DONE,
+            seeding_removed_at="t",
+            dest_path=str(media / "Shows" / "Show (2019)"),
+        )
+        resp = self._redo(app_client, job.id, "show", 2)
+        assert resp.status_code == 409
+        assert store.get_job_by_id(job.id).status is JobStatus.DONE
+        assert len(store.list_jobs()) == 1
+        torrent_client.download.assert_not_awaited()
+
+    @pytest.mark.parametrize(("media_type", "tmdb_id"), [("show", 1), ("movie", 2)])
+    def test_mismatched_title_is_422(
+        self, app_client, store: JobStore, media, torrent_client, media_type, tmdb_id
+    ):
+        job = self._done_movie(store, media)
+        resp = self._redo(app_client, job.id, media_type, tmdb_id)
+        assert resp.status_code == 422
+        assert store.get_job_by_id(job.id).status is JobStatus.DONE
+        assert len(store.list_jobs()) == 1
+        torrent_client.download.assert_not_awaited()
+
+    def test_success_replaces_the_job(
+        self, app_client, store: JobStore, media, torrent_client, jellyfin_client
+    ):
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": self.NEW_HASH}
+        old = self._done_episode(store, media)
+        resp = self._redo(app_client, old.id, "show", 2)
+        assert resp.status_code == 202
+        new = resp.json()["job"]
+        assert new["id"] != old.id
+        assert new["redo_of"] == old.id
+        assert new["status"] == JobStatus.DOWNLOAD_SUBMITTED.value
+        assert new["torrent_hash"] == self.NEW_HASH
+        assert (new["season"], new["episode"]) == (2, 5)
+        assert new["release_name"] == "Bar.2021"
+        assert store.get_job_by_id(old.id).status is JobStatus.DELETED
+        assert torrent_client.download.await_args.kwargs["source_url"] == self.NEW_MAGNET
+        jellyfin_client.scan.assert_awaited_once_with(
+            path=str(media / "Shows" / "Show (2019)"), update_type="Deleted"
+        )
+
+    def test_success_resolves_title_best_effort(
+        self, app_client, store: JobStore, media, torrent_client
+    ):
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": self.NEW_HASH}
+        torrent_client.tmdb_detail.return_value = {
+            "status": "success",
+            "data": {"title": "Foo", "release_date": "2021-01-01"},
+        }
+        old = self._done_movie(store, media)
+        resp = self._redo(app_client, old.id, "movie", 1)
+        assert resp.status_code == 202
+        assert resp.json()["job"]["resolved_title"] == "Foo"
+
+    def test_deletion_failure_is_502_and_the_replacement_is_reused(
+        self, app_client, store: JobStore, media, torrent_client, jellyfin_client
+    ):
+        jellyfin_client.scan.side_effect = AppException(
+            status_code=502, code=ErrorCode.DOWNSTREAM_UNAVAILABLE, detail="jellyfin down"
+        )
+        old = self._done_movie(store, media)
+        resp = self._redo(app_client, old.id, "movie", 1)
+        assert resp.status_code == 502
+        assert resp.json()["code"] == "REDO_DELETION_FAILED"
+        assert store.get_job_by_id(old.id).status is JobStatus.DONE
+        torrent_client.download.assert_not_awaited()
+        jobs = store.list_jobs()
+        assert len(jobs) == 2
+        replacement = next(job for job in jobs if job.id != old.id)
+        assert replacement.redo_of == old.id
+        assert replacement.status is JobStatus.DOWNLOAD_SUBMITTED
+        assert replacement.torrent_hash is None
+
+        jellyfin_client.scan.side_effect = None
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": self.NEW_HASH}
+        resp = self._redo(app_client, old.id, "movie", 1)
+        assert resp.status_code == 202
+        assert resp.json()["job"]["id"] == replacement.id
+        assert len(store.list_jobs()) == 2
+        assert store.get_job_by_id(old.id).status is JobStatus.DELETED
+        assert store.get_job_by_id(replacement.id).torrent_hash == self.NEW_HASH
+
+    def test_redone_by_on_the_old_job_view(
+        self, app_client, store: JobStore, media, torrent_client
+    ):
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": self.NEW_HASH}
+        torrent_client.transfers.return_value = {"data": []}
+        old = self._done_movie(store, media)
+        new_id = self._redo(app_client, old.id, "movie", 1).json()["job"]["id"]
+        single = app_client.get(f"/api/v1/jobs/{old.id}").json()
+        assert single["redone_by"] == new_id
+        assert single["redo_of"] is None
+        listed = {job["id"]: job for job in app_client.get("/api/v1/jobs").json()["jobs"]}
+        assert listed[old.id]["redone_by"] == new_id
+        assert listed[new_id]["redo_of"] == old.id
+        assert listed[new_id]["redone_by"] is None
