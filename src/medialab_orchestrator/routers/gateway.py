@@ -22,6 +22,7 @@ from medialab_orchestrator.schemas.jobs import (
 )
 from medialab_orchestrator.services.deletion import DeletionService, plan_deletion
 from medialab_orchestrator.services.metadata import resolve_title_year
+from medialab_orchestrator.services.progress import with_progress
 from medialab_orchestrator.services.storage import disk_usage
 from medialab_orchestrator.store import JobNotFoundError, JobStatus
 
@@ -102,7 +103,7 @@ async def list_transfers(request: Request, ctx: AppContext = Depends(get_context
     "/jobs",
     response_model=JobsResponse,
     status_code=fastapi_status.HTTP_200_OK,
-    summary="The pipeline lifecycle view, optionally filtered by status.",
+    summary="The pipeline lifecycle view, optionally filtered by status, with live progress.",
     responses=_COMMON_ERRORS,
 )
 @limiter.limit(RATE_LIMIT_DEFAULT)
@@ -112,14 +113,14 @@ async def list_jobs(
     status: JobStatus | None = None,
 ) -> JobsResponse:
     jobs = ctx.store.list_jobs(status=status)
-    return JobsResponse(jobs=[JobView.from_job(j) for j in jobs])
+    return JobsResponse(jobs=await with_progress(jobs, store=ctx.store, torrent=ctx.torrent))
 
 
 @router.get(
     "/jobs/{job_id}",
     response_model=JobView,
     status_code=fastapi_status.HTTP_200_OK,
-    summary="Single job detail including last_error and attempts.",
+    summary="Single job detail including last_error, attempts and live progress.",
     responses={**_COMMON_ERRORS, 404: {"model": ErrorResponse, "description": "No such job."}},
 )
 @limiter.limit(RATE_LIMIT_DEFAULT)
@@ -132,7 +133,8 @@ async def get_job(request: Request, job_id: str, ctx: AppContext = Depends(get_c
             code=ErrorCode.JOB_NOT_FOUND,
             detail=f"No job {job_id}.",
         ) from exc
-    return JobView.from_job(job)
+    [view] = await with_progress([job], store=ctx.store, torrent=ctx.torrent)
+    return view
 
 
 def _job_or_404(ctx: AppContext, job_id: str):

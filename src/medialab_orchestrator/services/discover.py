@@ -1,4 +1,5 @@
-"""Annotating discover results and wishlist items with wishlist and library state.
+"""Annotating discover results, TMDB search results and wishlist items with
+wishlist and library state.
 
 The library lookup is best effort: any failure is logged and treated as an
 empty library, so the "In Jellyfin" badge never blocks discovery.
@@ -6,10 +7,22 @@ empty library, so the "In Jellyfin" badge never blocks discovery.
 
 from __future__ import annotations
 
+from typing import Any
+
 from medialab_contracts import DiscoverResponse, MediaType, WishlistItem
 
 from medialab_orchestrator.clients import JellyfinClient
 from medialab_orchestrator.core.logger import app_logger
+from medialab_orchestrator.store import WishlistStore
+
+TMDB_MEDIA_TYPES: dict[str, MediaType] = {"movie": MediaType.MOVIE, "tv": MediaType.SHOW}
+"""TMDB search ``media_type`` wire values mapped to the suite's MediaType."""
+
+SEARCH_RESULTS_KEY = "data"
+SEARCH_MEDIA_TYPE_KEY = "media_type"
+SEARCH_TMDB_ID_KEY = "tmdb_id"
+ON_WISHLIST_KEY = "on_wishlist"
+IN_LIBRARY_KEY = "in_library"
 
 
 async def library_tmdb_ids(jellyfin: JellyfinClient, media_type: MediaType) -> set[int]:
@@ -53,3 +66,40 @@ async def annotate_wishlist(
         item.model_copy(update={"in_library": item.tmdb_id in libraries[item.media_type]})
         for item in items
     ]
+
+
+def _search_media_type(result: dict[str, Any]) -> MediaType | None:
+    return TMDB_MEDIA_TYPES.get(str(result.get(SEARCH_MEDIA_TYPE_KEY)))
+
+
+async def annotate_search(
+    payload: Any, *, wishlist: WishlistStore, jellyfin: JellyfinClient
+) -> Any:
+    """Set ``on_wishlist`` and ``in_library`` on each TMDB search result.
+
+    Results keep their own TMDB ``media_type`` (``tv`` stays ``tv``); lookups
+    map it to MediaType. One wishlist and one library lookup per media type
+    present; an unmapped type is flagged false.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    results: list[dict[str, Any]] = payload.get(SEARCH_RESULTS_KEY) or []
+    present = [
+        media_type
+        for media_type in dict.fromkeys(_search_media_type(result) for result in results)
+        if media_type is not None
+    ]
+    wishlisted = {media_type: wishlist.keys(media_type) for media_type in present}
+    libraries = {media_type: await library_tmdb_ids(jellyfin, media_type) for media_type in present}
+
+    def flags(result: dict[str, Any]) -> dict[str, bool]:
+        media_type = _search_media_type(result)
+        tmdb_id = result.get(SEARCH_TMDB_ID_KEY)
+        if media_type is None:
+            return {ON_WISHLIST_KEY: False, IN_LIBRARY_KEY: False}
+        return {
+            ON_WISHLIST_KEY: tmdb_id in wishlisted[media_type],
+            IN_LIBRARY_KEY: tmdb_id in libraries[media_type],
+        }
+
+    return {**payload, SEARCH_RESULTS_KEY: [{**result, **flags(result)} for result in results]}
