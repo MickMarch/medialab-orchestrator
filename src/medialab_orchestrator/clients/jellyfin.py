@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from medialab_contracts import API_PREFIX, MediaType
+from medialab_contracts import API_PREFIX, LibraryTmdbIdsResponse, MediaType
 
 from medialab_orchestrator.clients.base import DownstreamClient
 from medialab_orchestrator.core.config import config
@@ -39,3 +39,9 @@ class JellyfinClient(DownstreamClient):
             f"{API_PREFIX}/library/scan",
             json={"path": path, "update_type": update_type},
         )
+
+    async def library_tmdb_ids(self, media_type: MediaType) -> LibraryTmdbIdsResponse:
+        body = await self.get(
+            f"{API_PREFIX}/library/tmdb-ids", params={"media_type": media_type.value}
+        )
+        return LibraryTmdbIdsResponse.model_validate(body)

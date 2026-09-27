@@ -4,10 +4,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from medialab_contracts import API_PREFIX, MediaType, TorrentSearchScope
+from medialab_contracts import (
+    API_PREFIX,
+    DiscoverResponse,
+    GenresResponse,
+    MediaType,
+    TorrentSearchScope,
+)
 
 from medialab_orchestrator.clients.base import DownstreamClient
 from medialab_orchestrator.core.config import config
+from medialab_orchestrator.core.errors import ErrorCode
+
+# TMDB outages and out-of-range pages keep their meaning for the UI instead of
+# collapsing into DOWNSTREAM_UNAVAILABLE.
+_DISCOVER_RELAYED = frozenset({ErrorCode.TMDB_UNAVAILABLE, ErrorCode.INVALID_INPUT})
 
 
 class TorrentDownloaderClient(DownstreamClient):
@@ -25,6 +36,25 @@ class TorrentDownloaderClient(DownstreamClient):
 
     async def tmdb_detail(self, media_type: MediaType, tmdb_id: int) -> Any:
         return await self.get(f"{API_PREFIX}/search/tmdb/{media_type.value}/{tmdb_id}")
+
+    async def discover(
+        self, media_type: MediaType, *, genre: int | None = None, page: int | None = None
+    ) -> DiscoverResponse:
+        params: dict[str, Any] = {}
+        if genre is not None:
+            params["genre"] = genre
+        if page is not None:
+            params["page"] = page
+        body = await self.get(
+            f"{API_PREFIX}/discover/{media_type.value}", params=params, relay=_DISCOVER_RELAYED
+        )
+        return DiscoverResponse.model_validate(body)
+
+    async def discover_genres(self, media_type: MediaType) -> GenresResponse:
+        body = await self.get(
+            f"{API_PREFIX}/discover/{media_type.value}/genres", relay=_DISCOVER_RELAYED
+        )
+        return GenresResponse.model_validate(body)
 
     async def search_torrents(
         self, query: str, scope: TorrentSearchScope, *, alt_query: str | None = None

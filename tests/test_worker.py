@@ -1,15 +1,16 @@
 """PipelineWorker tests: full advance, failure capture, idempotent retry."""
 
+import sqlite3
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
-from medialab_contracts import MediaType
+from medialab_contracts import MediaType, WishlistAddRequest
 
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.services import worker as worker_module
 from medialab_orchestrator.services.worker import PipelineWorker
-from medialab_orchestrator.store import JobStatus, JobStore
+from medialab_orchestrator.store import JobStatus, JobStore, WishlistStore
 
 HASH = "a" * 40
 TV_RELEASE = "Show.Name.S01.1080p.GROUP"
@@ -17,10 +18,16 @@ TV_RELEASE = "Show.Name.S01.1080p.GROUP"
 
 @pytest.fixture
 def worker(
-    store: JobStore, torrent_client: AsyncMock, jellyfin_client: AsyncMock
+    store: JobStore,
+    wishlist: WishlistStore,
+    torrent_client: AsyncMock,
+    jellyfin_client: AsyncMock,
 ) -> PipelineWorker:
     return PipelineWorker(
-        store=store, torrent_client=torrent_client, jellyfin_client=jellyfin_client
+        store=store,
+        wishlist=wishlist,
+        torrent_client=torrent_client,
+        jellyfin_client=jellyfin_client,
     )
 
 
@@ -313,3 +320,58 @@ class TestStagingSource:
 
         assert job.status is JobStatus.DONE
         assert not legacy.exists()
+
+
+def _seed_job_at_scan(store: JobStore, *, tmdb_id: int, media_type: MediaType) -> None:
+    job = store.create_job(
+        torrent_hash=HASH,
+        release_name=TV_RELEASE,
+        media_type=media_type,
+        tmdb_id=tmdb_id,
+        status=JobStatus.DOWNLOADING,
+    )
+    store.update_job(job.id, status=JobStatus.SCAN, dest_path="/media/Shows/Show Name (2019)")
+
+
+def _wish(wishlist: WishlistStore, media_type: MediaType, tmdb_id: int) -> None:
+    wishlist.add(media_type, tmdb_id, WishlistAddRequest(title=f"title {tmdb_id}"))
+
+
+class TestWishlistCleanupOnDone:
+    async def test_done_removes_the_matching_wishlist_row_only(
+        self, worker: PipelineWorker, store: JobStore, wishlist: WishlistStore
+    ):
+        _wish(wishlist, MediaType.SHOW, 42)
+        _wish(wishlist, MediaType.MOVIE, 42)
+        _wish(wishlist, MediaType.SHOW, 7)
+        _seed_job_at_scan(store, tmdb_id=42, media_type=MediaType.SHOW)
+
+        job = await worker.process(HASH)
+
+        assert job.status is JobStatus.DONE
+        assert wishlist.keys(MediaType.SHOW) == {7}
+        assert wishlist.keys(MediaType.MOVIE) == {42}
+
+    async def test_orphan_job_touches_nothing(
+        self, worker: PipelineWorker, store: JobStore, wishlist: WishlistStore, mocker
+    ):
+        _wish(wishlist, MediaType.SHOW, 42)
+        remove = mocker.spy(wishlist, "remove")
+        _seed_job_at_scan(store, tmdb_id=0, media_type=MediaType.SHOW)
+
+        job = await worker.process(HASH)
+
+        assert job.status is JobStatus.DONE
+        remove.assert_not_called()
+        assert wishlist.keys(MediaType.SHOW) == {42}
+
+    async def test_wishlist_failure_does_not_fail_the_job(
+        self, worker: PipelineWorker, store: JobStore, wishlist: WishlistStore, mocker
+    ):
+        mocker.patch.object(wishlist, "remove", side_effect=sqlite3.OperationalError("locked"))
+        _seed_job_at_scan(store, tmdb_id=42, media_type=MediaType.SHOW)
+
+        job = await worker.process(HASH)
+
+        assert job.status is JobStatus.DONE
+        assert job.last_error is None
