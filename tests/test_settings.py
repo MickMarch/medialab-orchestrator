@@ -30,7 +30,20 @@ class TestEngine:
             "health_poll_interval_seconds",
             "auto_resume_max",
             "auto_retry_max",
+            "follow_poll_interval_seconds",
+            "follow_max_submissions_per_tick",
+            "follow_delay_hours",
+            "follow_minimum_seeders",
         ]
+        follow_interval = rt.view("follow_poll_interval_seconds")
+        assert (follow_interval.value, follow_interval.min, follow_interval.max) == (
+            21600,
+            0,
+            604800,
+        )
+        assert rt.view("follow_max_submissions_per_tick").value == 3
+        assert rt.view("follow_delay_hours").value == 12
+        assert rt.view("follow_minimum_seeders").value == 50
         assert rt.view("auto_retry_max").source is SettingSource.ENV
         assert rt.view("auto_resume_max").source is SettingSource.DEFAULT
         assert rt.view("health_poll_interval_seconds").value == 300
@@ -111,7 +124,14 @@ class TestGateway:
         body = app_client.get("/api/v1/settings").json()
         assert body["status"] == "success"
         assert [s["key"] for s in body["services"]["torrent-downloader"]] == ["minimum_seeders"]
-        assert "auto_retry_max" in [s["key"] for s in body["services"]["medialab-orchestrator"]]
+        local_keys = [s["key"] for s in body["services"]["medialab-orchestrator"]]
+        assert "auto_retry_max" in local_keys
+        assert {
+            "follow_poll_interval_seconds",
+            "follow_max_submissions_per_tick",
+            "follow_delay_hours",
+            "follow_minimum_seeders",
+        } <= set(local_keys)
 
     def test_put_local_and_relayed(self, app_client: TestClient, torrent_client: AsyncMock):
         resp = app_client.put(

@@ -50,6 +50,9 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 | `PUT` | `/watchlist/show/{tmdb_id}/follow` | Body `FollowRequest` (`start.mode` `new_only`, `from` with `season` and `episode`, or `beginning`; `resolution`, default `1080p`). The show must already be saved (`404` `WATCHLIST_ITEM_NOT_FOUND`); the UI saves, then follows. Sets `kind = following`, stamps `followed_at`, unpauses; idempotent. `422` for a movie. |
 | `DELETE` | `/watchlist/show/{tmdb_id}/follow` | Unfollow: back to `saved`, follow state cleared, row kept. `204` even when absent. |
 | `POST` | `/watchlist/show/{tmdb_id}/follow/pause`, `/resume` | Flip `paused`; `200` with the item, `404` unless the show is followed. |
+| `POST` | `/watchlist/show/{tmdb_id}/follow/check` | Check now: runs one follow check for this show (paused or not) and returns `{"submitted": ["S02E05", ...]}`. `404` unless followed; `503` `TMDB_UNAVAILABLE` when the show view cannot be fetched. |
+| `GET` | `/watchlist/show/{tmdb_id}/episodes` | `GET /shows/{tmdb_id}` plus, per episode, `submitted` (`submitted`, `ignored` or `null`) and `wanted` (the next tick will fetch it). `404` unless followed. |
+| `DELETE` | `/watchlist/show/{tmdb_id}/episodes/{season}/{episode}/submission` | Retry: forgets the submission so the next tick may fetch the episode again. `204` even when absent. |
 | `POST` | `/download` | Body `{source_url, media_type, tmdb_id}`, optional `release_name`, `season`, `episode` (the searched scope; both absent means the whole title). Creates a `pipeline_job`, forwards to torrent-downloader, stamps the returned `torrent_hash`. Returns the job (`202`). |
 | `GET` | `/transfers` | Live downloader transfers merged with job rows. |
 | `GET` | `/jobs[?status=]`, `GET /jobs/{id}` | Pipeline lifecycle view. Jobs in `DOWNLOAD_SUBMITTED` or `DOWNLOADING` carry live `progress` (`progress`, `download_speed`, `eta_seconds`, `state`) from one transfers read, or `null` when the read fails; an actively fetching submitted job is moved to `DOWNLOADING` on read. Each job carries `redo_of` (the job it replaces) and `redone_by` (the newest job replacing it, computed on read). |
@@ -66,6 +69,37 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 
 Errors: `{"status": "error", "code": "<ErrorCode>", "detail": "..."}`. Every
 response includes an `X-Request-ID` UUID.
+
+## Runtime settings
+
+Declared in `core/settings.py`, read and overridden through `/settings`
+(`medialab-orchestrator` service). Each has a `.env` default of the same name
+in upper case; an override persists in `SETTINGS_PATH` and applies at the next
+tick of the loop it tunes.
+
+| Key | Range | Default | Tunes |
+|---|---|---|---|
+| `health_poll_interval_seconds` | 0 to 3600 | 300 | Seconds between health-poll ticks; 0 pauses it. |
+| `auto_resume_max` | 0 to 10 | 3 | Resumes of a stalled download before `NEEDS_ATTENTION`. |
+| `auto_retry_max` | 0 to 10 | 2 | Retries of a `FAILED` job before `NEEDS_ATTENTION`. |
+| `follow_poll_interval_seconds` | 0 to 604800 | 21600 | Seconds between follow-poll ticks; 0 pauses it. |
+| `follow_max_submissions_per_tick` | 1 to 20 | 3 | Episodes one followed show may submit per tick. |
+| `follow_delay_hours` | 0 to 168 | 12 | Hours after an episode's air date (start of that day, UTC) before a follow fetches it. |
+| `follow_minimum_seeders` | 0 to 1000 | 50 | Seeder floor passed to the downloader's automatic pick. |
+
+## Follow poll and the Discord notice
+
+`services/follow.py` is the second loop beside the health poll. Every tick it
+walks the unpaused followed shows: fetches the show view (`GET /shows/{id}`),
+keeps the episodes on or after the start point that aired at least
+`follow_delay_hours` ago, are not in the library, not queued and never
+submitted, then asks torrent-downloader's `GET /search/torrents/pick` for each
+in air order and submits the candidate exactly as `POST /download` would.
+`NO_CANDIDATE` moves on to the next episode; a downloader error stops that
+show until the next tick. When `DISCORD_NOTIFY_WEBHOOK_URL` is set, every
+submission posts `Following <title>: submitted S02E05 (<release name>)` to
+that channel webhook. Unset means no notice; see the workspace
+[secrets map](../docs/secrets.md).
 
 ## Wiring the qBittorrent completion hook
 

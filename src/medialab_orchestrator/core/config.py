@@ -33,5 +33,14 @@ class AppConfig(BaseSettings):
     auto_resume_max: int = Field(default=3)
     auto_retry_max: int = Field(default=2)
 
+    # Follow poll (auto-download for followed shows). 0 pauses the poll.
+    follow_poll_interval_seconds: int = Field(default=21600)
+    follow_max_submissions_per_tick: int = Field(default=3)
+    follow_delay_hours: int = Field(default=12)
+    follow_minimum_seeders: int = Field(default=50)
+
+    # Discord channel webhook for follow notices; unset means no notice.
+    discord_notify_webhook_url: str | None = Field(default=None)
+
 
 config: AppConfig = AppConfig()

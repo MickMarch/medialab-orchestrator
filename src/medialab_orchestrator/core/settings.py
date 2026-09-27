@@ -24,6 +24,13 @@ from medialab_orchestrator.core.logger import app_logger
 
 SERVICE_NAME = "medialab-orchestrator"
 _APPLIES_NEXT_TICK = "next health-poll tick"
+_APPLIES_NEXT_FOLLOW_TICK = "next follow tick"
+
+_ONE_HOUR_SECONDS = 3600
+_ONE_WEEK_SECONDS = 7 * 24 * _ONE_HOUR_SECONDS
+_ONE_WEEK_HOURS = 7 * 24
+_MAX_SUBMISSIONS_PER_TICK = 20
+_MAX_SEEDERS = 1000
 
 SETTINGS: tuple[SettingSpec, ...] = (
     SettingSpec(
@@ -49,6 +56,38 @@ SETTINGS: tuple[SettingSpec, ...] = (
         max=10,
         description="How many times a failed job is retried before it needs attention.",
         applies=_APPLIES_NEXT_TICK,
+    ),
+    SettingSpec(
+        key="follow_poll_interval_seconds",
+        type=SettingType.INT,
+        min=0,
+        max=_ONE_WEEK_SECONDS,
+        description="Seconds between follow-poll ticks; 0 pauses the poll.",
+        applies=_APPLIES_NEXT_FOLLOW_TICK,
+    ),
+    SettingSpec(
+        key="follow_max_submissions_per_tick",
+        type=SettingType.INT,
+        min=1,
+        max=_MAX_SUBMISSIONS_PER_TICK,
+        description="How many episodes one followed show may submit per tick.",
+        applies=_APPLIES_NEXT_FOLLOW_TICK,
+    ),
+    SettingSpec(
+        key="follow_delay_hours",
+        type=SettingType.INT,
+        min=0,
+        max=_ONE_WEEK_HOURS,
+        description="Hours after an episode's air date before a follow fetches it.",
+        applies=_APPLIES_NEXT_FOLLOW_TICK,
+    ),
+    SettingSpec(
+        key="follow_minimum_seeders",
+        type=SettingType.INT,
+        min=0,
+        max=_MAX_SEEDERS,
+        description="Seeder floor for automatic picks, separate from manual search.",
+        applies=_APPLIES_NEXT_FOLLOW_TICK,
     ),
 )
 

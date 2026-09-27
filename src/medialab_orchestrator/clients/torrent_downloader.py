@@ -21,6 +21,7 @@ from medialab_orchestrator.core.errors import ErrorCode
 # TMDB outages and out-of-range pages keep their meaning for the UI instead of
 # collapsing into DOWNSTREAM_UNAVAILABLE.
 _DISCOVER_RELAYED = frozenset({ErrorCode.TMDB_UNAVAILABLE, ErrorCode.INVALID_INPUT})
+_NOT_FOUND = 404
 
 
 class TorrentDownloaderClient(DownstreamClient):
@@ -87,6 +88,25 @@ class TorrentDownloaderClient(DownstreamClient):
         if scope.episode is not None:
             params["episode"] = scope.episode
         return await self.get(f"{API_PREFIX}/search/torrents", params=params)
+
+    async def pick_torrent(
+        self, query: str, *, season: int, episode: int, resolution: str, min_seeders: int
+    ) -> Any:
+        """The downloader's automatic pick for one episode: a bare torrent
+        result, or ``None`` when it answers 404 ``NO_CANDIDATE``. Any other
+        failure (qBittorrent down, unreachable) raises as usual."""
+        return await self.request(
+            "GET",
+            f"{API_PREFIX}/search/torrents/pick",
+            params={
+                "query": query,
+                "season": season,
+                "episode": episode,
+                "resolution": resolution,
+                "min_seeders": min_seeders,
+            },
+            accept=(_NOT_FOUND,),
+        )
 
     async def download(self, *, source_url: str, media_type: MediaType, tmdb_id: int) -> Any:
         return await self.post(
