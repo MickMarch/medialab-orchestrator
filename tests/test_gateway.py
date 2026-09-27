@@ -3,12 +3,12 @@
 from unittest.mock import AsyncMock
 
 import pytest
-from medialab_contracts import MediaType
+from medialab_contracts import MediaType, SubmissionState
 
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.routers import gateway as gateway_module
 from medialab_orchestrator.services import deletion as deletion_module
-from medialab_orchestrator.store import JobStatus, JobStore
+from medialab_orchestrator.store import JobStatus, JobStore, WatchlistStore
 
 HASH = "abcdef0123456789abcdef0123456789abcdef01"
 MAGNET = f"magnet:?xt=urn:btih:{HASH}&dn=Foo"
@@ -249,6 +249,27 @@ class TestDeletion:
         assert resp.json()["status"] == "DELETED"
         torrent_client.remove_transfer.assert_awaited_once_with(HASH, delete_files=True)
 
+    def test_delete_marks_the_follow_submission_ignored(
+        self, app_client, store: JobStore, watchlist: WatchlistStore, torrent_client: AsyncMock
+    ):
+        job = store.create_job(
+            torrent_hash=HASH, release_name="S.S02E05", media_type=MediaType.SHOW, tmdb_id=2
+        )
+        watchlist.record_submission(2, 2, 5, job.id)
+        assert app_client.delete(f"/api/v1/jobs/{job.id}").status_code == 200
+        assert watchlist.submissions(2) == {(2, 5): (SubmissionState.IGNORED, job.id)}
+
+    def test_refused_delete_leaves_the_submission(
+        self, app_client, store: JobStore, watchlist: WatchlistStore
+    ):
+        job = store.create_job(
+            torrent_hash=HASH, release_name="S.S02E05", media_type=MediaType.SHOW, tmdb_id=2
+        )
+        store.update_job(job.id, status=JobStatus.DELETED)
+        watchlist.record_submission(2, 2, 5, job.id)
+        assert app_client.delete(f"/api/v1/jobs/{job.id}").status_code == 409
+        assert watchlist.submissions(2) == {(2, 5): (SubmissionState.SUBMITTED, job.id)}
+
     def test_delete_unknown_job_is_404(self, app_client):
         assert app_client.delete("/api/v1/jobs/nope").status_code == 404
 
@@ -451,6 +472,17 @@ class TestRedo:
         jellyfin_client.scan.assert_awaited_once_with(
             path=str(media / "Shows" / "Show (2019)"), update_type="Deleted"
         )
+
+    def test_success_repoints_the_follow_submission(
+        self, app_client, store: JobStore, watchlist: WatchlistStore, media, torrent_client
+    ):
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": self.NEW_HASH}
+        old = self._done_episode(store, media)
+        watchlist.record_submission(2, 2, 5, old.id)
+        resp = self._redo(app_client, old.id, "show", 2)
+        assert resp.status_code == 202
+        new_id = resp.json()["job"]["id"]
+        assert watchlist.submissions(2) == {(2, 5): (SubmissionState.SUBMITTED, new_id)}
 
     def test_success_resolves_title_best_effort(
         self, app_client, store: JobStore, media, torrent_client

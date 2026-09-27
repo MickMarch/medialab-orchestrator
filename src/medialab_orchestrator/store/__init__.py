@@ -1,4 +1,4 @@
-"""Persistence: the SQLite-backed pipeline job and wishlist stores."""
+"""Persistence: the SQLite-backed pipeline job and watchlist stores."""
 
 from medialab_orchestrator.store.jobs import (
     JobNotFoundError,
@@ -6,12 +6,13 @@ from medialab_orchestrator.store.jobs import (
     JobStore,
     PipelineJob,
 )
-from medialab_orchestrator.store.wishlist import WishlistStore
+from medialab_orchestrator.store.watchlist import WatchlistItemNotFoundError, WatchlistStore
 
 __all__ = [
     "JobNotFoundError",
     "JobStatus",
     "JobStore",
     "PipelineJob",
-    "WishlistStore",
+    "WatchlistItemNotFoundError",
+    "WatchlistStore",
 ]

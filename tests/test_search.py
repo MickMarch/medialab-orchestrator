@@ -1,11 +1,18 @@
-"""TMDB title search: passthrough annotated with wishlist and library flags."""
+"""TMDB title search: passthrough annotated with watchlist and library flags."""
 
 from unittest.mock import AsyncMock
 
-from medialab_contracts import LibraryTmdbIdsResponse, MediaType, WishlistAddRequest
+from medialab_contracts import (
+    FollowRequest,
+    FollowStart,
+    FollowStartMode,
+    LibraryTmdbIdsResponse,
+    MediaType,
+    WatchlistAddRequest,
+)
 
 from medialab_orchestrator.core.errors import AppException, ErrorCode
-from medialab_orchestrator.store import WishlistStore
+from medialab_orchestrator.store import WatchlistStore
 
 MOVIE_ID = 10
 SHOW_ID = 20
@@ -34,20 +41,21 @@ def _library(media_type: MediaType, *tmdb_ids: int) -> LibraryTmdbIdsResponse:
     return LibraryTmdbIdsResponse(media_type=media_type, tmdb_ids=list(tmdb_ids))
 
 
-def _flags(body: dict, key: str) -> dict[tuple[str, int], bool]:
+def _flags(body: dict, key: str) -> dict[tuple[str, int], object]:
     return {(item["media_type"], item["tmdb_id"]): item[key] for item in body["data"]}
 
 
 class TestSearchTmdb:
-    def test_on_wishlist_matches_media_type_and_id_with_tv_as_show(
+    def test_on_watchlist_matches_media_type_and_id_with_tv_as_show(
         self,
         app_client,
-        wishlist: WishlistStore,
+        watchlist: WatchlistStore,
         torrent_client: AsyncMock,
         jellyfin_client: AsyncMock,
     ):
-        wishlist.add(MediaType.MOVIE, MOVIE_ID, WishlistAddRequest(title="m"))
-        wishlist.add(MediaType.SHOW, SHOW_ID, WishlistAddRequest(title="s"))
+        watchlist.add(MediaType.MOVIE, MOVIE_ID, WatchlistAddRequest(title="m"))
+        watchlist.add(MediaType.SHOW, SHOW_ID, WatchlistAddRequest(title="s"))
+        watchlist.follow(SHOW_ID, FollowRequest(start=FollowStart(mode=FollowStartMode.NEW_ONLY)))
         torrent_client.search_tmdb.return_value = _search(
             _result(MOVIE_ID, TMDB_MOVIE),
             _result(MOVIE_ID, TMDB_TV),
@@ -57,12 +65,19 @@ class TestSearchTmdb:
         )
         jellyfin_client.library_tmdb_ids.side_effect = lambda media_type: _library(media_type)
         body = app_client.get("/api/v1/search/tmdb?query=foo").json()
-        assert _flags(body, "on_wishlist") == {
+        assert _flags(body, "on_watchlist") == {
             (TMDB_MOVIE, MOVIE_ID): True,
             (TMDB_TV, MOVIE_ID): False,
             (TMDB_TV, SHOW_ID): True,
             (TMDB_MOVIE, SHOW_ID): False,
             (TMDB_MOVIE, PLAIN_ID): False,
+        }
+        assert _flags(body, "watchlist_kind") == {
+            (TMDB_MOVIE, MOVIE_ID): "saved",
+            (TMDB_TV, MOVIE_ID): None,
+            (TMDB_TV, SHOW_ID): "following",
+            (TMDB_MOVIE, SHOW_ID): None,
+            (TMDB_MOVIE, PLAIN_ID): None,
         }
 
     def test_in_library_with_one_lookup_per_media_type(
@@ -95,7 +110,9 @@ class TestSearchTmdb:
         body = app_client.get("/api/v1/search/tmdb?query=foo").json()
         assert body["status"] == "success"
         assert body["message"] == "ok"
-        assert body["data"] == [{**result, "on_wishlist": False, "in_library": False}]
+        assert body["data"] == [
+            {**result, "on_watchlist": False, "watchlist_kind": None, "in_library": False}
+        ]
         torrent_client.search_tmdb.assert_awaited_once_with("foo")
 
     def test_in_library_false_when_jellyfin_raises(
@@ -122,6 +139,7 @@ class TestSearchTmdb:
     ):
         torrent_client.search_tmdb.return_value = _search(_result(PLAIN_ID, "person"))
         item = app_client.get("/api/v1/search/tmdb?query=foo").json()["data"][0]
-        assert item["on_wishlist"] is False
+        assert item["on_watchlist"] is False
+        assert item["watchlist_kind"] is None
         assert item["in_library"] is False
         jellyfin_client.library_tmdb_ids.assert_not_awaited()

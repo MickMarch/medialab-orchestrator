@@ -38,5 +38,5 @@ async def get_show(
         torrent=ctx.torrent,
         jellyfin=ctx.jellyfin,
         store=ctx.store,
-        wishlist=ctx.wishlist,
+        watchlist=ctx.watchlist,
     )

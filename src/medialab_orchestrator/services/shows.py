@@ -15,9 +15,9 @@ from medialab_contracts import Episode, EpisodeState, MediaType, ShowBrowseRespo
 
 from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClient
 from medialab_orchestrator.core.logger import app_logger
-from medialab_orchestrator.services.discover import library_tmdb_ids
+from medialab_orchestrator.services.discover import library_tmdb_ids, watchlist_flags
 from medialab_orchestrator.services.metadata import extract_title_year
-from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob, WishlistStore
+from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob, WatchlistStore
 
 # Jobs no longer heading for the library. FAILED is retryable, so it still
 # counts as queued. Mirrors the health poll's notion.
@@ -86,7 +86,7 @@ async def browse_show(
     torrent: TorrentDownloaderClient,
     jellyfin: JellyfinClient,
     store: JobStore,
-    wishlist: WishlistStore,
+    watchlist: WatchlistStore,
 ) -> ShowBrowseResponse:
     listing = await torrent.series_episodes(tmdb_id)
     detail = await torrent.tmdb_detail(MediaType.SHOW, tmdb_id)
@@ -107,6 +107,6 @@ async def browse_show(
             for episode in listing.episodes
         ],
         next_episode=listing.next_episode,
-        on_wishlist=tmdb_id in wishlist.keys(MediaType.SHOW),
+        **watchlist_flags(watchlist.keys(MediaType.SHOW), tmdb_id),
         in_library=tmdb_id in await library_tmdb_ids(jellyfin, MediaType.SHOW),
     )

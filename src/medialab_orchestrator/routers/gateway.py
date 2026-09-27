@@ -157,7 +157,10 @@ async def delete_job(
     service = DeletionService(
         store=ctx.store, torrent_client=ctx.torrent, jellyfin_client=ctx.jellyfin
     )
-    return JobView.from_job(await service.execute(job))
+    deleted = await service.execute(job)
+    # A follow never re-queues an episode whose download was deleted on purpose.
+    ctx.watchlist.ignore_submission_for_job(deleted.id)
+    return JobView.from_job(deleted)
 
 
 @router.post(
@@ -188,7 +191,14 @@ async def redo_download(
     request: Request, job_id: str, payload: DownloadRequest, ctx: AppContext = Depends(get_context)
 ) -> DownloadResponse:
     old = _job_or_404(ctx, job_id)
-    job = await redo_job(old, payload, store=ctx.store, torrent=ctx.torrent, jellyfin=ctx.jellyfin)
+    job = await redo_job(
+        old,
+        payload,
+        store=ctx.store,
+        watchlist=ctx.watchlist,
+        torrent=ctx.torrent,
+        jellyfin=ctx.jellyfin,
+    )
     return DownloadResponse(job=JobView.from_job(job))
 
 
