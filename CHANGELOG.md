@@ -6,6 +6,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Follow routes for the watchlist (MickMarch/medialab#24, storage and routes
+  only; the follow poll and auto-submit come separately):
+  `PUT /watchlist/show/{tmdb_id}/follow` with a `FollowRequest` body turns a
+  saved show into a follow (`404` `WATCHLIST_ITEM_NOT_FOUND` when the show is
+  not saved, `422` for a movie), `DELETE .../follow` returns it to saved,
+  `POST .../follow/pause` and `/resume` flip `paused`. `GET /watchlist` takes
+  `kind=saved|following`; a following item carries `follow` (start,
+  resolution, paused, followed_at, last_checked_at, last_submitted).
+- `watchlist_item` gains `kind` and the follow columns; a new
+  `follow_submission` table records what a follow has submitted per episode.
+  `DELETE /jobs/{id}` marks the job's submission `ignored`; a redo repoints it
+  at the replacement job.
+- Discover, TMDB search and the show header carry `watchlist_kind` beside
+  `on_watchlist`.
+
+### Changed
+
+- **Breaking:** the wishlist is the watchlist. `/wishlist` routes are
+  `/watchlist` with the same verbs; `on_wishlist` is `on_watchlist`. The
+  `wishlist_item` table is renamed `watchlist_item` at startup with rows kept.
+- A job reaching `DONE` removes only a saved title; a followed show stays.
+- medialab-contracts pinned at v1.0.0.
+
 ## [0.20.0] - 2026-09-27
 
 ### Added

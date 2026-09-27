@@ -19,7 +19,7 @@ from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.schemas.jobs import DownloadRequest, JobView
 from medialab_orchestrator.services.deletion import DeletionService, plan_deletion
 from medialab_orchestrator.services.download import create_submitted_job, submit_job
-from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob
+from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob, WatchlistStore
 
 
 def attach_redone_by(views: Iterable[JobView], *, store: JobStore) -> list[JobView]:
@@ -66,15 +66,21 @@ async def redo_job(
     payload: DownloadRequest,
     *,
     store: JobStore,
+    watchlist: WatchlistStore,
     torrent: TorrentDownloaderClient,
     jellyfin: JellyfinClient,
 ) -> PipelineJob:
-    """Replace ``old`` with the download in ``payload``; returns the new job."""
+    """Replace ``old`` with the download in ``payload``; returns the new job.
+
+    A follow's submission for the episode moves to the replacement as soon as
+    it exists, so a redo that stalls at deletion still counts as submitted.
+    """
     _check_redoable(old, payload)
     request = _replacement_request(old, payload)
     replacement = store.find_replacement(old.id) or create_submitted_job(
         store, request, redo_of=old.id
     )
+    watchlist.repoint_submission(old.id, replacement.id)
     deletion = DeletionService(store=store, torrent_client=torrent, jellyfin_client=jellyfin)
     try:
         await deletion.execute(old)

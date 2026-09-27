@@ -1,7 +1,7 @@
 """Search router: stateless proxies to torrent-downloader.
 
 These create no job (a job is born at download submit). They exist so the bot
-has a single dependency; TMDB title search is also annotated with wishlist and
+has a single dependency; TMDB title search is also annotated with watchlist and
 library state, the same flags discover carries.
 """
 
@@ -31,13 +31,13 @@ _SEARCH_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 @router.get(
     "/search/tmdb",
     status_code=fastapi_status.HTTP_200_OK,
-    summary="TMDB multi-search (proxied), with on_wishlist and in_library per result.",
+    summary="TMDB multi-search (proxied), with on_watchlist and in_library per result.",
     responses=_SEARCH_ERROR_RESPONSES,
 )
 @limiter.limit(RATE_LIMIT_SEARCH)
 async def search_tmdb(request: Request, query: str, ctx: AppContext = Depends(get_context)) -> Any:
     return await annotate_search(
-        await ctx.torrent.search_tmdb(query), wishlist=ctx.wishlist, jellyfin=ctx.jellyfin
+        await ctx.torrent.search_tmdb(query), watchlist=ctx.watchlist, jellyfin=ctx.jellyfin
     )
 
 

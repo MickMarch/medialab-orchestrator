@@ -1,5 +1,5 @@
 """Discover router: trending and popular-by-genre titles proxied from
-torrent-downloader, annotated with wishlist and library state. Creates no job."""
+torrent-downloader, annotated with watchlist and library state. Creates no job."""
 
 from typing import Any
 
@@ -29,7 +29,7 @@ _DISCOVER_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     "/{media_type}",
     response_model=DiscoverResponse,
     status_code=fastapi_status.HTTP_200_OK,
-    summary="Trending titles, or the most popular in a genre, with wishlist and library flags.",
+    summary="Trending titles, or the most popular in a genre, with watchlist and library flags.",
     responses=_DISCOVER_ERROR_RESPONSES,
 )
 @limiter.limit(RATE_LIMIT_SEARCH)
@@ -44,7 +44,7 @@ async def discover(
     return annotate_discover(
         response,
         media_type=media_type,
-        wishlisted=ctx.wishlist.keys(media_type),
+        watchlist=ctx.watchlist.keys(media_type),
         in_library=await library_tmdb_ids(ctx.jellyfin, media_type),
     )
 

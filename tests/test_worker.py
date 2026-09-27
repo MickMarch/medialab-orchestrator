@@ -5,12 +5,19 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
-from medialab_contracts import MediaType, WishlistAddRequest
+from medialab_contracts import (
+    FollowRequest,
+    FollowStart,
+    FollowStartMode,
+    MediaType,
+    WatchlistAddRequest,
+    WatchlistKind,
+)
 
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.services import worker as worker_module
 from medialab_orchestrator.services.worker import PipelineWorker
-from medialab_orchestrator.store import JobStatus, JobStore, WishlistStore
+from medialab_orchestrator.store import JobStatus, JobStore, WatchlistStore
 
 HASH = "a" * 40
 TV_RELEASE = "Show.Name.S01.1080p.GROUP"
@@ -19,13 +26,13 @@ TV_RELEASE = "Show.Name.S01.1080p.GROUP"
 @pytest.fixture
 def worker(
     store: JobStore,
-    wishlist: WishlistStore,
+    watchlist: WatchlistStore,
     torrent_client: AsyncMock,
     jellyfin_client: AsyncMock,
 ) -> PipelineWorker:
     return PipelineWorker(
         store=store,
-        wishlist=wishlist,
+        watchlist=watchlist,
         torrent_client=torrent_client,
         jellyfin_client=jellyfin_client,
     )
@@ -333,42 +340,56 @@ def _seed_job_at_scan(store: JobStore, *, tmdb_id: int, media_type: MediaType) -
     store.update_job(job.id, status=JobStatus.SCAN, dest_path="/media/Shows/Show Name (2019)")
 
 
-def _wish(wishlist: WishlistStore, media_type: MediaType, tmdb_id: int) -> None:
-    wishlist.add(media_type, tmdb_id, WishlistAddRequest(title=f"title {tmdb_id}"))
+def _wish(watchlist: WatchlistStore, media_type: MediaType, tmdb_id: int) -> None:
+    watchlist.add(media_type, tmdb_id, WatchlistAddRequest(title=f"title {tmdb_id}"))
 
 
-class TestWishlistCleanupOnDone:
-    async def test_done_removes_the_matching_wishlist_row_only(
-        self, worker: PipelineWorker, store: JobStore, wishlist: WishlistStore
+class TestWatchlistCleanupOnDone:
+    async def test_done_leaves_a_followed_show(
+        self, worker: PipelineWorker, store: JobStore, watchlist: WatchlistStore
     ):
-        _wish(wishlist, MediaType.SHOW, 42)
-        _wish(wishlist, MediaType.MOVIE, 42)
-        _wish(wishlist, MediaType.SHOW, 7)
+        _wish(watchlist, MediaType.SHOW, 42)
+        watchlist.follow(42, FollowRequest(start=FollowStart(mode=FollowStartMode.NEW_ONLY)))
         _seed_job_at_scan(store, tmdb_id=42, media_type=MediaType.SHOW)
 
         job = await worker.process(HASH)
 
         assert job.status is JobStatus.DONE
-        assert wishlist.keys(MediaType.SHOW) == {7}
-        assert wishlist.keys(MediaType.MOVIE) == {42}
+        assert watchlist.keys(MediaType.SHOW) == {42: WatchlistKind.FOLLOWING}
+
+    async def test_done_removes_the_matching_watchlist_row_only(
+        self, worker: PipelineWorker, store: JobStore, watchlist: WatchlistStore
+    ):
+        _wish(watchlist, MediaType.SHOW, 42)
+        _wish(watchlist, MediaType.MOVIE, 42)
+        _wish(watchlist, MediaType.SHOW, 7)
+        _seed_job_at_scan(store, tmdb_id=42, media_type=MediaType.SHOW)
+
+        job = await worker.process(HASH)
+
+        assert job.status is JobStatus.DONE
+        assert watchlist.keys(MediaType.SHOW) == {7: WatchlistKind.SAVED}
+        assert watchlist.keys(MediaType.MOVIE) == {42: WatchlistKind.SAVED}
 
     async def test_orphan_job_touches_nothing(
-        self, worker: PipelineWorker, store: JobStore, wishlist: WishlistStore, mocker
+        self, worker: PipelineWorker, store: JobStore, watchlist: WatchlistStore, mocker
     ):
-        _wish(wishlist, MediaType.SHOW, 42)
-        remove = mocker.spy(wishlist, "remove")
+        _wish(watchlist, MediaType.SHOW, 42)
+        remove = mocker.spy(watchlist, "remove_saved")
         _seed_job_at_scan(store, tmdb_id=0, media_type=MediaType.SHOW)
 
         job = await worker.process(HASH)
 
         assert job.status is JobStatus.DONE
         remove.assert_not_called()
-        assert wishlist.keys(MediaType.SHOW) == {42}
+        assert watchlist.keys(MediaType.SHOW) == {42: WatchlistKind.SAVED}
 
-    async def test_wishlist_failure_does_not_fail_the_job(
-        self, worker: PipelineWorker, store: JobStore, wishlist: WishlistStore, mocker
+    async def test_watchlist_failure_does_not_fail_the_job(
+        self, worker: PipelineWorker, store: JobStore, watchlist: WatchlistStore, mocker
     ):
-        mocker.patch.object(wishlist, "remove", side_effect=sqlite3.OperationalError("locked"))
+        mocker.patch.object(
+            watchlist, "remove_saved", side_effect=sqlite3.OperationalError("locked")
+        )
         _seed_job_at_scan(store, tmdb_id=42, media_type=MediaType.SHOW)
 
         job = await worker.process(HASH)

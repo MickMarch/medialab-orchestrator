@@ -7,16 +7,19 @@ import pytest
 from medialab_contracts import (
     Episode,
     EpisodeKey,
+    FollowRequest,
+    FollowStart,
+    FollowStartMode,
     LibraryEpisodesResponse,
     LibraryTmdbIdsResponse,
     MediaType,
     Season,
     SeriesEpisodesResponse,
-    WishlistAddRequest,
+    WatchlistAddRequest,
 )
 
 from medialab_orchestrator.core.errors import AppException, ErrorCode
-from medialab_orchestrator.store import JobStatus, JobStore, WishlistStore
+from medialab_orchestrator.store import JobStatus, JobStore, WatchlistStore
 
 SHOW_ID = 1396
 OTHER_SHOW_ID = 2
@@ -133,15 +136,28 @@ class TestBrowseShow:
         assert resp.json()["in_library"] is False
 
     def test_series_level_flags(
-        self, app_client, wishlist: WishlistStore, jellyfin_client: AsyncMock
+        self, app_client, watchlist: WatchlistStore, jellyfin_client: AsyncMock
     ):
-        wishlist.add(MediaType.SHOW, SHOW_ID, WishlistAddRequest(title="bb"))
+        watchlist.add(MediaType.SHOW, SHOW_ID, WatchlistAddRequest(title="bb"))
         jellyfin_client.library_tmdb_ids.return_value = LibraryTmdbIdsResponse(
             media_type=MediaType.SHOW, tmdb_ids=[SHOW_ID]
         )
         body = app_client.get(f"/api/v1/shows/{SHOW_ID}").json()
-        assert body["on_wishlist"] is True
+        assert body["on_watchlist"] is True
         assert body["in_library"] is True
+        assert body["watchlist_kind"] == "saved"
+
+    def test_following_kind_on_the_header(
+        self, app_client, watchlist: WatchlistStore, jellyfin_client: AsyncMock
+    ):
+        watchlist.add(MediaType.SHOW, SHOW_ID, WatchlistAddRequest(title="bb"))
+        watchlist.follow(SHOW_ID, FollowRequest(start=FollowStart(mode=FollowStartMode.BEGINNING)))
+        jellyfin_client.library_tmdb_ids.return_value = LibraryTmdbIdsResponse(
+            media_type=MediaType.SHOW, tmdb_ids=[]
+        )
+        body = app_client.get(f"/api/v1/shows/{SHOW_ID}").json()
+        assert body["on_watchlist"] is True
+        assert body["watchlist_kind"] == "following"
 
     def test_tmdb_unavailable_relays_as_503(self, app_client, torrent_client: AsyncMock):
         torrent_client.series_episodes.side_effect = _tmdb_down()

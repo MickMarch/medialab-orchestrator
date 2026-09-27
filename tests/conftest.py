@@ -16,7 +16,7 @@ from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClien
 from medialab_orchestrator.core import auth, deps
 from medialab_orchestrator.core.deps import AppContext, get_context
 from medialab_orchestrator.services.worker import PipelineWorker
-from medialab_orchestrator.store import JobStore, WishlistStore
+from medialab_orchestrator.store import JobStore, WatchlistStore
 
 TEST_API_KEY = "test-api-key"
 
@@ -28,9 +28,9 @@ def store() -> JobStore:
 
 
 @pytest.fixture
-def wishlist() -> WishlistStore:
-    """A fresh in-memory wishlist store, isolated per test."""
-    return WishlistStore(db_path=":memory:")
+def watchlist() -> WatchlistStore:
+    """A fresh in-memory watchlist store, isolated per test."""
+    return WatchlistStore(db_path=":memory:")
 
 
 @pytest.fixture
@@ -46,19 +46,19 @@ def jellyfin_client() -> AsyncMock:
 @pytest.fixture
 def context(
     store: JobStore,
-    wishlist: WishlistStore,
+    watchlist: WatchlistStore,
     torrent_client: AsyncMock,
     jellyfin_client: AsyncMock,
 ) -> AppContext:
     worker = PipelineWorker(
         store=store,
-        wishlist=wishlist,
+        watchlist=watchlist,
         torrent_client=torrent_client,
         jellyfin_client=jellyfin_client,
     )
     return AppContext(
         store=store,
-        wishlist=wishlist,
+        watchlist=watchlist,
         torrent=torrent_client,
         jellyfin=jellyfin_client,
         worker=worker,

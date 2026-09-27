@@ -45,11 +45,13 @@ RENAME               from <media>/_incoming/<subdir>/<root name> (legacy: the li
                      per video file: show -> <root>/Title (Year)/Season NN/Title SNNEMM.ext
                      movie -> <root>/Title (Year)/Title (Year).ext (+ extras/); subs follow
 SCAN                 medialab-jellyfin POST /library/scan
-DONE                 removes the job's (media_type, tmdb_id) from the wishlist; orphans skip it
+DONE                 removes the job's (media_type, tmdb_id) from the watchlist when it is only
+                     saved (a followed show stays); orphans skip it
 FAILED               any step error; last_error stored; POST /jobs/{id}/retry re-enters
                      from the last good state; the health poll retries it AUTO_RETRY_MAX times
 NEEDS_ATTENTION      the poll's budget for a job is spent; only a human retry moves it
-DELETED              undone via DELETE /jobs/{id}, or replaced via POST /jobs/{id}/redo (only from
+DELETED              undone via DELETE /jobs/{id} (marks the job's follow_submission ignored), or
+                     replaced via POST /jobs/{id}/redo (repoints the submission; only from
                      DONE: replacement row created first with redo_of, then the old job's deletion
                      plan runs, then the new download is submitted); terminal, kept for the record
 ```
@@ -97,7 +99,7 @@ Jellyfin recursively scans them and 404s on a sub-path of a registered root.
   `docs/decisions/0003-webhook-plus-poll.md`.
 - **Search proxies create no job.** `GET /search/*` and `GET /discover/*`
   are stateless passthroughs, the accepted exception to "every gateway
-  endpoint binds a job". The wishlist is user state, not a job.
+  endpoint binds a job". The watchlist is user state, not a job.
 - **Relayed downstream codes.** A downstream error becomes `502`
   `DOWNSTREAM_UNAVAILABLE` unless the client call lists its code in `relay`
   (`clients/base.py`); discover relays `TMDB_UNAVAILABLE` (503) and
@@ -113,15 +115,17 @@ src/medialab_orchestrator/
 │                settings (declared runtime tunables, JSON override store, applied onto config)
 ├── clients/     base (httpx + X-API-Key), torrent_downloader, jellyfin
 ├── store/       jobs (JobStatus, PipelineJob, JobStore over sqlite3),
-│                wishlist (WishlistStore, same DB file, wishlist_item table)
+│                watchlist (WatchlistStore, same DB file: watchlist_item, renamed from
+│                wishlist_item at startup, plus follow_submission keyed by show, season, episode)
 ├── services/    worker (asyncio pipeline), health_poll (periodic remediation), deletion (undo a
 │                download: plan + execute), download (the submit path shared by
 │                POST /download and redo), redo (replace a DONE job; redone_by on read),
 │                metadata (TMDB resolve),
 │                rename (pure plan_rename to Jellyfin layout + apply_plan mover),
-│                discover (wishlist + best-effort library annotation),
+│                discover (watchlist kind + best-effort library annotation),
 │                shows (episodes joined with library presence and queued jobs)
-├── routers/     system (/health), search (proxies), discover (annotated proxies), shows, wishlist,
+├── routers/     system (/health), search (proxies), discover (annotated proxies), shows, watchlist
+│                (saved titles, follow / unfollow / pause / resume),
 │                settings (suite settings, local + relayed),
 │                gateway (download/transfers/jobs/storage),
 │                webhooks (torrent-complete)
@@ -132,9 +136,9 @@ src/medialab_orchestrator/
 
 ## Testing patterns
 
-- `store` / `wishlist` fixtures (`tests/conftest.py`): fresh in-memory
-  `JobStore` / `WishlistStore(db_path=":memory:")` per test. Never a real DB
-  file, except the schema-coexistence test, which uses `tmp_path`.
+- `store` / `watchlist` fixtures (`tests/conftest.py`): fresh in-memory
+  `JobStore` / `WatchlistStore(db_path=":memory:")` per test. Never a real DB
+  file, except the schema and migration tests, which use `tmp_path`.
 - Downstream HTTP mocked at the client-class boundary. The webhook is
   exercised by posting to the endpoint. No live qBittorrent or Jellyfin.
 - Season parsing is validated against real release-name samples; no season
