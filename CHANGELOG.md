@@ -6,6 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `GET /jobs` and `GET /jobs/{id}` attach live `progress` (`JobProgress`:
+  progress, download speed, ETA, qBittorrent state) to jobs in
+  `DOWNLOAD_SUBMITTED` or `DOWNLOADING` with a torrent hash, from one
+  transfers read per request and only when such a job is listed. qBittorrent's
+  unknown ETA becomes `null`. A failed transfers read returns the jobs without
+  progress. The same read moves a `DOWNLOAD_SUBMITTED` job to `DOWNLOADING`
+  when qBittorrent is actively fetching it, using the health poll's rule.
+- `GET /search/tmdb` results carry `on_wishlist` and `in_library` (best
+  effort: a library lookup failure leaves it false), with one library lookup
+  per media type present. TMDB `tv` results match `show` wishlist and library
+  entries and keep their own `media_type` on the wire.
+
+### Changed
+
+- medialab-contracts dependency bumped to v0.10.0 (`JobProgress`,
+  `ETA_UNKNOWN_SECONDS`).
+
 ## [0.16.1] - 2026-09-27
 
 ### Fixed

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from medialab_contracts import MediaType
+from medialab_contracts import JobProgress, MediaType
 from pydantic import BaseModel, Field
 
 from medialab_orchestrator.store import JobStatus, PipelineJob
@@ -44,6 +44,8 @@ class JobView(BaseModel):
     deleted_at: str | None = None
     created_at: str
     updated_at: str
+    progress: JobProgress | None = None
+    """Live qBittorrent progress, attached on read to active downloads only."""
 
     @classmethod
     def from_job(cls, job: PipelineJob) -> JobView:

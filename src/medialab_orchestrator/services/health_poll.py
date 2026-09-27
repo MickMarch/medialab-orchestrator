@@ -24,6 +24,11 @@ from medialab_orchestrator.clients import TorrentDownloaderClient
 from medialab_orchestrator.core.config import config
 from medialab_orchestrator.core.errors import AppException
 from medialab_orchestrator.core.logger import app_logger
+from medialab_orchestrator.services.progress import (
+    AWAITING_DOWNLOAD,
+    advance_to_downloading,
+    index_transfers,
+)
 from medialab_orchestrator.services.worker import PipelineWorker
 from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob
 
@@ -35,12 +40,7 @@ COMPLETE_STATES = frozenset(
 )
 """qBittorrent states that only exist once the download reached 100%."""
 
-ACTIVE_DOWNLOAD_STATES = frozenset({"downloading", "stalledDL", "metaDL", "forcedDL"})
-"""qBittorrent states where the torrent is started and fetching (stalled
-means started but no peers right now). Queued, paused and checking are not."""
-
 _COMPLETE_PROGRESS = 1.0
-_AWAITING_COMPLETION = frozenset({JobStatus.DOWNLOAD_SUBMITTED, JobStatus.DOWNLOADING})
 _TERMINAL = frozenset({JobStatus.DONE, JobStatus.NEEDS_ATTENTION, JobStatus.DELETED})
 
 
@@ -104,7 +104,7 @@ class HealthPoller:
         except AppException as exc:
             app_logger.warning("Health poll skipped: %s", exc.detail)
             return
-        transfers = {t["hash"].lower(): t for t in (payload or {}).get("data", []) if t.get("hash")}
+        transfers = index_transfers(payload)
         for job in self._store.list_jobs():
             if job.status in _TERMINAL:
                 continue
@@ -117,7 +117,7 @@ class HealthPoller:
         if job.status is JobStatus.FAILED:
             await self._retry_failed(job)
             return
-        if job.status not in _AWAITING_COMPLETION or job.torrent_hash is None:
+        if job.status not in AWAITING_DOWNLOAD or job.torrent_hash is None:
             return
         transfer = transfers.get(job.torrent_hash.lower())
         if transfer is None:
@@ -126,11 +126,8 @@ class HealthPoller:
             await self._resume(job, str(transfer.get("state")))
         elif is_complete(transfer):
             await self._run_missed_pipeline(job, transfer)
-        elif (
-            job.status is JobStatus.DOWNLOAD_SUBMITTED
-            and transfer.get("state") in ACTIVE_DOWNLOAD_STATES
-        ):
-            self._store.update_job(job.id, status=JobStatus.DOWNLOADING)
+        else:
+            advance_to_downloading(self._store, job, transfer)
 
     async def _resume(self, job: PipelineJob, state: str) -> None:
         if job.remediations >= self._auto_resume_max:

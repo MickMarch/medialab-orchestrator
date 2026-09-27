@@ -36,7 +36,7 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/health` | Public. Reachability of both downstream services plus `needs_attention`, the count of jobs waiting on a human. |
-| `GET` | `/search/tmdb?query=` | Proxy to torrent-downloader. No job created. |
+| `GET` | `/search/tmdb?query=` | Proxy to torrent-downloader; each result gains `on_wishlist` and best-effort `in_library` (TMDB `tv` matches `show`). No job created. |
 | `GET` | `/search/tmdb/{movie\|show}/{tmdb_id}` | Proxy. Show detail carries the season list. |
 | `DELETE` | `/search/cache` | Proxy to torrent-downloader `DELETE /cache`: drops cached search and TMDB result sets. |
 | `GET` | `/search/torrents?query=&media_type=[&season=&episode=]` | Proxy; scope validated via `TorrentSearchScope`. |
@@ -47,7 +47,7 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 | `DELETE` | `/wishlist/{movie\|show}/{tmdb_id}` | Idempotent, `204` even when absent. A job reaching `DONE` also removes its title. |
 | `POST` | `/download` (`source_url`, `media_type`, `tmdb_id`, optional `release_name`) | Body `{source_url, media_type, tmdb_id}`. Creates a `pipeline_job`, forwards to torrent-downloader, stamps the returned `torrent_hash`. Returns the job (`202`). |
 | `GET` | `/transfers` | Live downloader transfers merged with job rows. |
-| `GET` | `/jobs[?status=]`, `GET /jobs/{id}` | Pipeline lifecycle view. |
+| `GET` | `/jobs[?status=]`, `GET /jobs/{id}` | Pipeline lifecycle view. Jobs in `DOWNLOAD_SUBMITTED` or `DOWNLOADING` carry live `progress` (`progress`, `download_speed`, `eta_seconds`, `state`) from one transfers read, or `null` when the read fails; an actively fetching submitted job is moved to `DOWNLOADING` on read. |
 | `GET` | `/jobs/{id}/deletion-plan` | What a delete would remove: torrent, download folder, placed files, Jellyfin path, or a refusal reason. No side effects. |
 | `DELETE` | `/jobs/{id}` | Executes that plan; job becomes `DELETED`. `409` with the reason when refused. |
 | `POST` | `/jobs/{id}/retry` | Re-enter the worker from the last good state (`FAILED` or `NEEDS_ATTENTION`); resets the automatic retry budgets. `409` if the job has no hash yet. |
