@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `GET /search/tmdb/{media_type}/{tmdb_id}/videos?season=` proxies the
+  downloader's trailers and teasers.
+
+### Changed
+
+- medialab-contracts pinned at v0.12.0.
+
 ## [0.19.0] - 2026-09-27
 
 ### Added

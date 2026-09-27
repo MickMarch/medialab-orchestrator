@@ -37,7 +37,8 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 |---|---|---|
 | `GET` | `/health` | Public. Reachability of both downstream services plus `needs_attention`, the count of jobs waiting on a human. |
 | `GET` | `/search/tmdb?query=` | Proxy to torrent-downloader; each result gains `on_wishlist` and best-effort `in_library` (TMDB `tv` matches `show`). No job created. |
-| `GET` | `/search/tmdb/{movie\|show}/{tmdb_id}` | Proxy. Show detail carries the season list. |
+| `GET` | `/search/tmdb/{movie|show}/{tmdb_id}` | Proxy. Show detail carries the season list. |
+| `GET` | `/search/tmdb/{movie|show}/{tmdb_id}/videos?season=` | Proxy: YouTube trailers and teasers, official first; `season` narrows a show to one season. |\|show}/{tmdb_id}` | Proxy. Show detail carries the season list. |
 | `DELETE` | `/search/cache` | Proxy to torrent-downloader `DELETE /cache`: drops cached search and TMDB result sets. |
 | `GET` | `/search/torrents?query=&media_type=[&season=&episode=]` | Proxy; scope validated via `TorrentSearchScope`. |
 | `GET` | `/discover/{movie\|show}[?genre=&page=]` | Proxy to torrent-downloader: trending titles, or popular in `genre`. Sets `on_wishlist` from the wishlist and `in_library` from medialab-jellyfin (best effort, false on failure). `503` `TMDB_UNAVAILABLE` when TMDB is down. No job created. |

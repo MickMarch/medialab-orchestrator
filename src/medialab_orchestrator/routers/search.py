@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from fastapi import status as fastapi_status
-from medialab_contracts import MediaType, TorrentSearchScope
+from medialab_contracts import MediaType, TorrentSearchScope, VideosResponse
 from pydantic import ValidationError
 
 from medialab_orchestrator.core.deps import AppContext, get_context
@@ -55,6 +55,24 @@ async def search_tmdb_detail(
     ctx: AppContext = Depends(get_context),
 ) -> Any:
     return await ctx.torrent.tmdb_detail(media_type, tmdb_id)
+
+
+@router.get(
+    "/search/tmdb/{media_type}/{tmdb_id}/videos",
+    response_model=VideosResponse,
+    status_code=fastapi_status.HTTP_200_OK,
+    summary="Trailers and teasers for a title or a season (proxied to torrent-downloader).",
+    responses=_SEARCH_ERROR_RESPONSES,
+)
+@limiter.limit(RATE_LIMIT_SEARCH)
+async def search_tmdb_videos(
+    request: Request,
+    media_type: MediaType,
+    tmdb_id: int,
+    season: int | None = None,
+    ctx: AppContext = Depends(get_context),
+) -> VideosResponse:
+    return await ctx.torrent.videos(media_type, tmdb_id, season=season)
 
 
 @router.get(
