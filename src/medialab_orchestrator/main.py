@@ -26,6 +26,7 @@ from medialab_orchestrator.routers import (
     gateway,
     search,
     settings,
+    shows,
     system,
     webhooks,
     wishlist,
@@ -66,6 +67,7 @@ app: FastAPI = FastAPI(
         {"name": "System", "description": "Aggregated health."},
         {"name": "Search", "description": "Stateless TMDB / torrent search proxies."},
         {"name": "Discover", "description": "Trending and popular-by-genre titles from TMDB."},
+        {"name": "Shows", "description": "A show's seasons and episodes with library state."},
         {"name": "Wishlist", "description": "One shared list of titles saved for later."},
         {"name": "Gateway", "description": "Download submission, transfers, jobs, storage."},
         {"name": "Webhooks", "description": "qBittorrent completion entry point."},
@@ -122,6 +124,7 @@ async def validation_exception_handler(
 app.include_router(system.router, prefix=API_PREFIX)
 app.include_router(search.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(discover.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
+app.include_router(shows.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(wishlist.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(gateway.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(settings.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])

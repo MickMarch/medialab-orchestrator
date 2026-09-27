@@ -9,6 +9,7 @@ from medialab_contracts import (
     DiscoverResponse,
     GenresResponse,
     MediaType,
+    SeriesEpisodesResponse,
     TorrentSearchScope,
 )
 
@@ -36,6 +37,13 @@ class TorrentDownloaderClient(DownstreamClient):
 
     async def tmdb_detail(self, media_type: MediaType, tmdb_id: int) -> Any:
         return await self.get(f"{API_PREFIX}/search/tmdb/{media_type.value}/{tmdb_id}")
+
+    async def series_episodes(self, tmdb_id: int) -> SeriesEpisodesResponse:
+        body = await self.get(
+            f"{API_PREFIX}/search/tmdb/{MediaType.SHOW.value}/{tmdb_id}/episodes",
+            relay=_DISCOVER_RELAYED,
+        )
+        return SeriesEpisodesResponse.model_validate(body)
 
     async def discover(
         self, media_type: MediaType, *, genre: int | None = None, page: int | None = None

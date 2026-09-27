@@ -304,3 +304,34 @@ class TestDownloadReleaseName:
             "/api/v1/download", json={"source_url": MAGNET, "media_type": "movie", "tmdb_id": 1}
         )
         assert resp.json()["job"]["release_name"] == ""
+
+
+class TestDownloadScope:
+    def test_season_and_episode_stored_at_submit(
+        self, app_client, store: JobStore, torrent_client: AsyncMock
+    ):
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": HASH}
+        resp = app_client.post(
+            "/api/v1/download",
+            json={
+                "source_url": MAGNET,
+                "media_type": "show",
+                "tmdb_id": 1,
+                "season": 2,
+                "episode": 5,
+            },
+        )
+        assert resp.status_code == 202
+        assert (resp.json()["job"]["season"], resp.json()["job"]["episode"]) == (2, 5)
+        assert store.get_job_by_hash(HASH).episode == 5
+
+    def test_scope_optional_for_existing_callers(
+        self, app_client, store: JobStore, torrent_client: AsyncMock
+    ):
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": HASH}
+        resp = app_client.post(
+            "/api/v1/download", json={"source_url": MAGNET, "media_type": "show", "tmdb_id": 1}
+        )
+        assert resp.status_code == 202
+        assert (resp.json()["job"]["season"], resp.json()["job"]["episode"]) == (None, None)
+        assert store.get_job_by_hash(HASH).season is None

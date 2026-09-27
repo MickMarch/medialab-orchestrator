@@ -176,6 +176,28 @@ class TestAddedColumns:
         assert old.seeding_removed_at is None
         updated = store.update_job("old1", remediations=2, seeding_removed_at="now")
         assert (updated.remediations, updated.seeding_removed_at) == (2, "now")
+        assert (old.season, old.episode) == (None, None)
+        scoped = store.create_job(
+            release_name="n", media_type=MediaType.SHOW, tmdb_id=1, season=2, episode=3
+        )
+        assert (scoped.season, scoped.episode) == (2, 3)
+
+
+class TestScope:
+    def test_scope_defaults_to_whole_title(self, store: JobStore):
+        job = _create(store)
+        assert (job.season, job.episode) == (None, None)
+
+    def test_scope_persisted(self, store: JobStore):
+        job = _create(store, season=1, episode=4)
+        assert (job.season, job.episode) == (1, 4)
+        assert store.get_job_by_id(job.id).season == 1
+
+    def test_list_jobs_for_title_filters_by_type_and_id(self, store: JobStore):
+        wanted = _create(store)
+        _create(store, tmdb_id=99)
+        _create(store, media_type=MediaType.MOVIE)
+        assert [j.id for j in store.list_jobs_for_title(MediaType.SHOW, 1234)] == [wanted.id]
 
     def test_needs_attention_is_a_listable_status(self, store: JobStore):
         job = store.create_job(release_name="x", media_type=MediaType.MOVIE, tmdb_id=1)
