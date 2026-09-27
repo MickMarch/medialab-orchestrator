@@ -47,6 +47,9 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 | `DELETE` | `/jobs/{id}` | Executes that plan; job becomes `DELETED`. `409` with the reason when refused. |
 | `POST` | `/jobs/{id}/retry` | Re-enter the worker from the last good state (`FAILED` or `NEEDS_ATTENTION`); resets the automatic retry budgets. `409` if the job has no hash yet. |
 | `GET` | `/storage` | Disk usage of the media mount (measured here). |
+| `GET` | `/settings` | Every service's runtime settings keyed by service name (`torrent-downloader` relayed, `medialab-orchestrator` local). |
+| `PUT` | `/settings/{service}/{key}` | Override one setting (`{"value": ...}`) on the named service; `404` unknown service or key, `422` out of bounds. |
+| `DELETE` | `/settings/{service}/{key}` | Drop the override. |
 | `POST` | `/transfers/stop-seeding` | Proxy to torrent-downloader: pause every seeding (completed) torrent, never an in-progress download. `202`. No job involved. |
 | `POST` | `/webhooks/torrent-complete` | Body `{hash, name}`, sent by the completion relay. Matches the job by hash (or orphan-inserts), advances it off the request thread, returns `202`. |
 

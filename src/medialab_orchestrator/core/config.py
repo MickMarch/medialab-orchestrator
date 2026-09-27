@@ -25,6 +25,8 @@ class AppConfig(BaseSettings):
 
     media_mount_path: str = Field(default="/media")
     db_path: str = Field(default="./data/orchestrator.db")
+    # Runtime setting overrides (see core/settings.py); lives on the data volume.
+    settings_path: str = Field(default="./data/settings.json")
 
     # Health poll (stuck-download remediation). 0 disables the poll.
     health_poll_interval_seconds: float = Field(default=300.0)

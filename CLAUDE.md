@@ -98,13 +98,15 @@ Jellyfin recursively scans them and 404s on a sub-path of a registered root.
 
 ```
 src/medialab_orchestrator/
-├── core/        config, auth, deps, limiter, middleware, logger, errors
+├── core/        config, auth, deps, limiter, middleware, logger, errors,
+│                settings (declared runtime tunables, JSON override store, applied onto config)
 ├── clients/     base (httpx + X-API-Key), torrent_downloader, jellyfin
 ├── store/       jobs (JobStatus, PipelineJob, JobStore over sqlite3)
 ├── services/    worker (asyncio pipeline), health_poll (periodic remediation), deletion (undo a
 │                download: plan + execute), metadata (TMDB resolve),
 │                rename (pure plan_rename to Jellyfin layout + apply_plan mover)
-├── routers/     system (/health), search (proxies), gateway (download/transfers/jobs/storage),
+├── routers/     system (/health), search (proxies), settings (suite settings, local + relayed),
+│                gateway (download/transfers/jobs/storage),
 │                webhooks (torrent-complete)
 ├── schemas/     jobs, errors
 ├── scripts/     notify_complete.py (standalone relay)

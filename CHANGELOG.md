@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Runtime settings: `GET /settings` aggregates every service, `PUT` and
+  `DELETE /settings/{service}/{key}` change one; the orchestrator's own
+  health-poll budgets and interval persist in `SETTINGS_PATH` on the data
+  volume.
+
+### Changed
+
+- The health poll reads its interval and budgets from config on every tick,
+  so a settings change applies without a restart; interval `0` pauses the
+  poll instead of disabling it at startup.
+
 ## [0.14.0] - 2026-09-26
 
 ### Added
