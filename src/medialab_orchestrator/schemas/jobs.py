@@ -18,6 +18,9 @@ class DownloadRequest(BaseModel):
     source_url: str = Field(min_length=1)
     media_type: MediaType
     tmdb_id: int
+    # The picked torrent's name, so the job is identifiable while it downloads;
+    # completion overwrites it with the on-disk name.
+    release_name: str = ""
 
 
 class JobView(BaseModel):

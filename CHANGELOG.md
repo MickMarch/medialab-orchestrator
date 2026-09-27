@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `POST /download` accepts `release_name` (the picked torrent's name) so a job
+  is identifiable while it downloads; completion still overwrites it.
+
 ## [0.13.0] - 2026-09-26
 
 ### Added

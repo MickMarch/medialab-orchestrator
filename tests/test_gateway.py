@@ -281,3 +281,26 @@ class TestSearchAltQuery:
         )
         assert resp.status_code == 200
         assert torrent_client.search_torrents.await_args.kwargs["alt_query"] == "The Mummy 2026"
+
+
+class TestDownloadReleaseName:
+    def test_release_name_stored_at_submit(self, app_client, torrent_client: AsyncMock):
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": HASH}
+        resp = app_client.post(
+            "/api/v1/download",
+            json={
+                "source_url": MAGNET,
+                "media_type": "movie",
+                "tmdb_id": 1,
+                "release_name": " The.Mummy.2026.1080p ",
+            },
+        )
+        assert resp.status_code == 202
+        assert resp.json()["job"]["release_name"] == "The.Mummy.2026.1080p"
+
+    def test_release_name_optional(self, app_client, torrent_client: AsyncMock):
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": HASH}
+        resp = app_client.post(
+            "/api/v1/download", json={"source_url": MAGNET, "media_type": "movie", "tmdb_id": 1}
+        )
+        assert resp.json()["job"]["release_name"] == ""
