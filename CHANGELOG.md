@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-27
+
 ### Added
 
 - `GET /discover/{movie|show}?genre=&page=` proxies torrent-downloader's
