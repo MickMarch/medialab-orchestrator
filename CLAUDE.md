@@ -44,7 +44,7 @@ RENAME               from <media>/_incoming/<subdir>/<root name> (legacy: the li
                      per video file: show -> <root>/Title (Year)/Season NN/Title SNNEMM.ext
                      movie -> <root>/Title (Year)/Title (Year).ext (+ extras/); subs follow
 SCAN                 medialab-jellyfin POST /library/scan
-DONE
+DONE                 removes the job's (media_type, tmdb_id) from the wishlist; orphans skip it
 FAILED               any step error; last_error stored; POST /jobs/{id}/retry re-enters
                      from the last good state; the health poll retries it AUTO_RETRY_MAX times
 NEEDS_ATTENTION      the poll's budget for a job is spent; only a human retry moves it
@@ -88,9 +88,13 @@ Jellyfin recursively scans them and 404s on a sub-path of a registered root.
   safety net: resume errored downloads, run the pipeline for missed
   completions, retry FAILED jobs, flag `NEEDS_ATTENTION` past the budgets.
   `docs/decisions/0003-webhook-plus-poll.md`.
-- **Search proxies create no job.** `GET /search/*` are stateless
-  passthroughs, the one accepted exception to "every gateway endpoint binds a
-  job".
+- **Search proxies create no job.** `GET /search/*` and `GET /discover/*`
+  are stateless passthroughs, the accepted exception to "every gateway
+  endpoint binds a job". The wishlist is user state, not a job.
+- **Relayed downstream codes.** A downstream error becomes `502`
+  `DOWNSTREAM_UNAVAILABLE` unless the client call lists its code in `relay`
+  (`clients/base.py`); discover relays `TMDB_UNAVAILABLE` (503) and
+  `INVALID_INPUT` (422) as-is.
 - **SQLite + in-process asyncio worker.** Lightest durable store and worker
   for single-host scale; the scale-up path is documented, not built.
 
@@ -101,11 +105,14 @@ src/medialab_orchestrator/
 ├── core/        config, auth, deps, limiter, middleware, logger, errors,
 │                settings (declared runtime tunables, JSON override store, applied onto config)
 ├── clients/     base (httpx + X-API-Key), torrent_downloader, jellyfin
-├── store/       jobs (JobStatus, PipelineJob, JobStore over sqlite3)
+├── store/       jobs (JobStatus, PipelineJob, JobStore over sqlite3),
+│                wishlist (WishlistStore, same DB file, wishlist_item table)
 ├── services/    worker (asyncio pipeline), health_poll (periodic remediation), deletion (undo a
 │                download: plan + execute), metadata (TMDB resolve),
-│                rename (pure plan_rename to Jellyfin layout + apply_plan mover)
-├── routers/     system (/health), search (proxies), settings (suite settings, local + relayed),
+│                rename (pure plan_rename to Jellyfin layout + apply_plan mover),
+│                discover (wishlist + best-effort library annotation)
+├── routers/     system (/health), search (proxies), discover (annotated proxies), wishlist,
+│                settings (suite settings, local + relayed),
 │                gateway (download/transfers/jobs/storage),
 │                webhooks (torrent-complete)
 ├── schemas/     jobs, errors
@@ -115,8 +122,9 @@ src/medialab_orchestrator/
 
 ## Testing patterns
 
-- `store` fixture (`tests/conftest.py`): fresh in-memory
-  `JobStore(db_path=":memory:")` per test. Never a real DB file.
+- `store` / `wishlist` fixtures (`tests/conftest.py`): fresh in-memory
+  `JobStore` / `WishlistStore(db_path=":memory:")` per test. Never a real DB
+  file, except the schema-coexistence test, which uses `tmp_path`.
 - Downstream HTTP mocked at the client-class boundary. The webhook is
   exercised by posting to the endpoint. No live qBittorrent or Jellyfin.
 - Season parsing is validated against real release-name samples; no season

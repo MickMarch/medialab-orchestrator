@@ -21,6 +21,8 @@ class ErrorCode(str, Enum):
     EPISODE_UNPARSEABLE = "EPISODE_UNPARSEABLE"
     SOURCE_NOT_FOUND = "SOURCE_NOT_FOUND"
     RENAME_INCOMPLETE = "RENAME_INCOMPLETE"
+    # Relayed from torrent-downloader when TMDB is unconfigured or unreachable.
+    TMDB_UNAVAILABLE = "TMDB_UNAVAILABLE"
 
 
 class AppException(Exception):

@@ -6,6 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `GET /discover/{movie|show}?genre=&page=` proxies torrent-downloader's
+  trending and popular-by-genre titles, setting `on_wishlist` from the
+  wishlist and `in_library` from medialab-jellyfin (best effort: a library
+  lookup failure leaves it false). `GET /discover/{movie|show}/genres`
+  proxies the genre list. A TMDB outage returns `503` `TMDB_UNAVAILABLE`.
+- Shared wishlist in the SQLite file (`wishlist_item`, created at startup):
+  `GET /wishlist?media_type=` newest first with `in_library`, idempotent
+  `PUT /wishlist/{media_type}/{tmdb_id}` (`200` with the item; a repeat keeps
+  the original `added_at`) and `DELETE /wishlist/{media_type}/{tmdb_id}`
+  (`204` even when absent).
+- A job reaching `DONE` removes its title from the wishlist; orphan jobs
+  (no TMDB id) leave it untouched.
+
+### Changed
+
+- `medialab-contracts` pinned to v0.9.0 for the discover and wishlist models.
+
 ## [0.15.0] - 2026-09-26
 
 ### Added

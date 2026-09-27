@@ -21,7 +21,15 @@ from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.limiter import limiter
 from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.core.middleware import RequestLoggingMiddleware
-from medialab_orchestrator.routers import gateway, search, settings, system, webhooks
+from medialab_orchestrator.routers import (
+    discover,
+    gateway,
+    search,
+    settings,
+    system,
+    webhooks,
+    wishlist,
+)
 
 
 @asynccontextmanager
@@ -57,6 +65,8 @@ app: FastAPI = FastAPI(
     openapi_tags=[
         {"name": "System", "description": "Aggregated health."},
         {"name": "Search", "description": "Stateless TMDB / torrent search proxies."},
+        {"name": "Discover", "description": "Trending and popular-by-genre titles from TMDB."},
+        {"name": "Wishlist", "description": "One shared list of titles saved for later."},
         {"name": "Gateway", "description": "Download submission, transfers, jobs, storage."},
         {"name": "Webhooks", "description": "qBittorrent completion entry point."},
     ],
@@ -111,6 +121,8 @@ async def validation_exception_handler(
 # System router stays public (health, no key). The rest require the gateway key.
 app.include_router(system.router, prefix=API_PREFIX)
 app.include_router(search.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
+app.include_router(discover.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
+app.include_router(wishlist.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(gateway.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(settings.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(webhooks.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])

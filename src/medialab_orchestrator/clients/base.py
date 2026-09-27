@@ -17,6 +17,29 @@ from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.logger import app_logger
 
 _DEFAULT_TIMEOUT_SECONDS = 30.0
+_ERROR_CODE_KEY = "code"
+_ERROR_DETAIL_KEY = "detail"
+_NO_RELAY: frozenset[ErrorCode] = frozenset()
+
+
+def relayed_error(status_code: int, body: Any, relay: frozenset[ErrorCode]) -> AppException | None:
+    """The downstream error re-raised with its own status and code when its
+    ``code`` is in ``relay``; ``None`` means map it to DOWNSTREAM_UNAVAILABLE."""
+    if not isinstance(body, dict):
+        return None
+    relayed = {code.value: code for code in relay}.get(str(body.get(_ERROR_CODE_KEY)))
+    if relayed is None:
+        return None
+    return AppException(
+        status_code=status_code, code=relayed, detail=str(body.get(_ERROR_DETAIL_KEY, ""))
+    )
+
+
+def _json_or_none(response: httpx.Response) -> Any:
+    try:
+        return response.json()
+    except ValueError:
+        return None
 
 
 class DownstreamClient:
@@ -48,9 +71,12 @@ class DownstreamClient:
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
         accept: tuple[int, ...] = (),
+        relay: frozenset[ErrorCode] = _NO_RELAY,
     ) -> Any:
         """``accept`` lists non-2xx statuses that mean "already in the wanted
-        state" for an idempotent action; they return ``None`` instead of raising."""
+        state" for an idempotent action; they return ``None`` instead of raising.
+        ``relay`` lists downstream error codes surfaced as-is (status and code)
+        instead of as DOWNSTREAM_UNAVAILABLE."""
         url = f"{self._base_url}{path}"
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -61,6 +87,12 @@ class DownstreamClient:
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code in accept:
                 return None
+            if relay:
+                passthrough = relayed_error(
+                    exc.response.status_code, _json_or_none(exc.response), relay
+                )
+                if passthrough is not None:
+                    raise passthrough from exc
             app_logger.warning(
                 "%s returned %d for %s %s",
                 self._name,
@@ -84,8 +116,14 @@ class DownstreamClient:
             return None
         return response.json()
 
-    async def get(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
-        return await self.request("GET", path, params=params)
+    async def get(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        relay: frozenset[ErrorCode] = _NO_RELAY,
+    ) -> Any:
+        return await self.request("GET", path, params=params, relay=relay)
 
     async def post(self, path: str, *, json: dict[str, Any] | None = None) -> Any:
         return await self.request("POST", path, json=json)

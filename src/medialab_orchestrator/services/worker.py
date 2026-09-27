@@ -33,7 +33,7 @@ from medialab_orchestrator.services.rename import (
     source_root_name,
     usable_root_name,
 )
-from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob
+from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob, WishlistStore
 
 _REENTRY_STATUSES = frozenset(
     {
@@ -58,10 +58,12 @@ class PipelineWorker:
         self,
         *,
         store: JobStore,
+        wishlist: WishlistStore,
         torrent_client: TorrentDownloaderClient,
         jellyfin_client: JellyfinClient,
     ) -> None:
         self._store = store
+        self._wishlist = wishlist
         self._torrent = torrent_client
         self._jellyfin = jellyfin_client
 
@@ -202,7 +204,25 @@ class PipelineWorker:
 
     async def _step_scan(self, job: PipelineJob) -> PipelineJob:
         await self._jellyfin.scan(path=job.dest_path or "")
-        return self._store.update_job(job.id, status=JobStatus.DONE, last_error=None)
+        done = self._store.update_job(job.id, status=JobStatus.DONE, last_error=None)
+        self._forget_wishlisted(done)
+        return done
+
+    def _forget_wishlisted(self, job: PipelineJob) -> None:
+        """A finished download leaves the wishlist. Orphan jobs (no TMDB id)
+        touch nothing, and a wishlist error never undoes a completed job."""
+        if not job.tmdb_id:
+            return
+        try:
+            self._wishlist.remove(job.media_type, job.tmdb_id)
+        except Exception as exc:
+            app_logger.warning(
+                "Job %s done, wishlist cleanup for %s %d failed: %s",
+                job.id,
+                job.media_type.value,
+                job.tmdb_id,
+                exc,
+            )
 
 
 def _utc_now() -> str:

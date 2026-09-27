@@ -40,6 +40,11 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 | `GET` | `/search/tmdb/{movie\|show}/{tmdb_id}` | Proxy. Show detail carries the season list. |
 | `DELETE` | `/search/cache` | Proxy to torrent-downloader `DELETE /cache`: drops cached search and TMDB result sets. |
 | `GET` | `/search/torrents?query=&media_type=[&season=&episode=]` | Proxy; scope validated via `TorrentSearchScope`. |
+| `GET` | `/discover/{movie\|show}[?genre=&page=]` | Proxy to torrent-downloader: trending titles, or popular in `genre`. Sets `on_wishlist` from the wishlist and `in_library` from medialab-jellyfin (best effort, false on failure). `503` `TMDB_UNAVAILABLE` when TMDB is down. No job created. |
+| `GET` | `/discover/{movie\|show}/genres` | Proxy: TMDB genre ids and names, usable as `genre`. |
+| `GET` | `/wishlist[?media_type=]` | The shared wishlist, newest first, with `in_library`. |
+| `PUT` | `/wishlist/{movie\|show}/{tmdb_id}` | Body `{title, year, poster_path, overview}`. Idempotent upsert, `200` with the item; a repeat keeps the original `added_at`. |
+| `DELETE` | `/wishlist/{movie\|show}/{tmdb_id}` | Idempotent, `204` even when absent. A job reaching `DONE` also removes its title. |
 | `POST` | `/download` (`source_url`, `media_type`, `tmdb_id`, optional `release_name`) | Body `{source_url, media_type, tmdb_id}`. Creates a `pipeline_job`, forwards to torrent-downloader, stamps the returned `torrent_hash`. Returns the job (`202`). |
 | `GET` | `/transfers` | Live downloader transfers merged with job rows. |
 | `GET` | `/jobs[?status=]`, `GET /jobs/{id}` | Pipeline lifecycle view. |

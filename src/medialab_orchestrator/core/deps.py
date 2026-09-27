@@ -1,6 +1,6 @@
 """Application context and FastAPI dependency providers.
 
-A single ``AppContext`` holds the long-lived collaborators (job store, downstream
+A single ``AppContext`` holds the long-lived collaborators (job and wishlist stores, downstream
 clients, worker). It is built at startup (FastAPI ``lifespan``) and stored on
 ``app.state``; route handlers pull it via the ``get_context`` dependency. Keeping
 construction in one place lets tests build a context with mocked clients and an
@@ -17,12 +17,13 @@ from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClien
 from medialab_orchestrator.core.config import config
 from medialab_orchestrator.services.health_poll import HealthPoller
 from medialab_orchestrator.services.worker import PipelineWorker
-from medialab_orchestrator.store import JobStore
+from medialab_orchestrator.store import JobStore, WishlistStore
 
 
 @dataclass
 class AppContext:
     store: JobStore
+    wishlist: WishlistStore
     torrent: TorrentDownloaderClient
     jellyfin: JellyfinClient
     worker: PipelineWorker
@@ -32,12 +33,22 @@ class AppContext:
 def build_context() -> AppContext:
     """Construct the production context from config."""
     store = JobStore(db_path=config.db_path)
+    wishlist = WishlistStore(db_path=config.db_path)
     torrent = TorrentDownloaderClient()
     jellyfin = JellyfinClient()
-    worker = PipelineWorker(store=store, torrent_client=torrent, jellyfin_client=jellyfin)
+    worker = PipelineWorker(
+        store=store, wishlist=wishlist, torrent_client=torrent, jellyfin_client=jellyfin
+    )
     # Budgets are read from config on every tick so runtime settings apply live.
     poller = HealthPoller(store=store, torrent_client=torrent, worker=worker)
-    return AppContext(store=store, torrent=torrent, jellyfin=jellyfin, worker=worker, poller=poller)
+    return AppContext(
+        store=store,
+        wishlist=wishlist,
+        torrent=torrent,
+        jellyfin=jellyfin,
+        worker=worker,
+        poller=poller,
+    )
 
 
 def get_context(request: Request) -> AppContext:
