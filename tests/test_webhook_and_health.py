@@ -31,8 +31,8 @@ class TestWebhook:
         assert store.get_job_by_hash(HASH).release_name == "Foo.2021.1080p"
 
     def test_orphan_hash_tracked(self, app_client, store: JobStore, torrent_client: AsyncMock):
-        # No job exists; the webhook inserts one so the event is tracked. It will
-        # fail at RESOLVE_META (orphan tmdb_id), which is acceptable.
+        # No job exists; the webhook inserts one so the event is tracked.
+        # RESOLVE_META then parses the release name instead of asking TMDB.
         torrent_client.transfer_info.side_effect = Exception("no info")
         resp = app_client.post(
             "/api/v1/webhooks/torrent-complete",

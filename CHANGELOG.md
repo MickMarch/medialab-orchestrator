@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- An orphan job (a completion webhook with no matching job) resolves its
+  title and year from the release name instead of asking TMDB for id 0 and
+  landing under an empty title (MickMarch/medialab#29).
+
 ## [1.3.0] - 2026-10-02
 
 ### Added
