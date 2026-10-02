@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-02
+
 ### Fixed
 
 - An orphan job (a completion webhook with no matching job) resolves its
