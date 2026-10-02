@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `POST /jobs/deletion-plan` and `POST /jobs/delete` take a list of job ids
+  and return one plan or one result per id, so a client can confirm and
+  delete many downloads at once; each job is handled exactly as the single
+  delete is, and a refused or failed job never stops the rest
+  (MickMarch/medialab#105).
+
 ## [1.1.0] - 2026-09-27
 
 ### Added

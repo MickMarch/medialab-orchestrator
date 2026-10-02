@@ -74,6 +74,47 @@ class DeletionPlanView(BaseModel):
     refused: str | None
 
 
+BULK_JOBS_MAX = 100
+"""Most job ids one bulk plan or delete request may carry."""
+
+
+class BulkJobsRequest(BaseModel):
+    """Body of ``POST /jobs/deletion-plan`` and ``POST /jobs/delete``."""
+
+    job_ids: list[str] = Field(min_length=1, max_length=BULK_JOBS_MAX)
+
+    def unique_ids(self) -> list[str]:
+        """The ids in request order, each once."""
+        return list(dict.fromkeys(self.job_ids))
+
+
+class JobDeletionPlanView(BaseModel):
+    """One entry of a bulk plan. ``job`` is None for an unknown id, whose plan
+    is refused."""
+
+    job: JobView | None
+    plan: DeletionPlanView
+
+
+class BulkDeletionPlanView(BaseModel):
+    status: str = "success"
+    plans: list[JobDeletionPlanView]
+
+
+class JobDeleteResultView(BaseModel):
+    """One entry of a bulk delete. ``error`` carries the refusal reason or the
+    downstream failure; ``job`` is the row as it stands afterwards."""
+
+    job_id: str
+    job: JobView | None
+    error: str | None = None
+
+
+class BulkDeleteView(BaseModel):
+    status: str = "success"
+    results: list[JobDeleteResultView]
+
+
 class DownloadResponse(BaseModel):
     """Returned from ``POST /download`` - the bot tracks the job by hash."""
 

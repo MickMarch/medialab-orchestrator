@@ -59,6 +59,8 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 | `POST` | `/jobs/{id}/redo` | Body as `POST /download` (the newly picked torrent; `media_type` and `tmdb_id` must match the job's, else `422`). Only for a `DONE` job (`409` `JOB_NOT_DONE`) whose deletion plan is not refused (`409`). Creates the replacement job with `redo_of` and the old job's `season`/`episode`, deletes the old job (`DELETED`), then submits the download. Returns the new job (`202`). `502` `REDO_DELETION_FAILED` when the deletion fails: the old job is untouched and the replacement row is reused on the next call. |
 | `GET` | `/jobs/{id}/deletion-plan` | What a delete would remove: torrent, download folder, placed files, Jellyfin path, or a refusal reason. No side effects. |
 | `DELETE` | `/jobs/{id}` | Executes that plan; job becomes `DELETED`. `409` with the reason when refused. |
+| `POST` | `/jobs/deletion-plan` | Body `{job_ids: [...]}` (1 to 100, duplicates collapsed). One `{job, plan}` per id in request order; an unknown id has `job: null` and a plan refused with `no such job`. No side effects. |
+| `POST` | `/jobs/delete` | Body as above. Deletes each job exactly as `DELETE /jobs/{id}` does, one after another; a refusal or downstream failure is reported in that id's `error` and the rest still run. Always `200` for a valid body. |
 | `POST` | `/jobs/{id}/retry` | Re-enter the worker from the last good state (`FAILED` or `NEEDS_ATTENTION`); resets the automatic retry budgets. `409` if the job has no hash yet. |
 | `GET` | `/storage` | Disk usage of the media mount (measured here). |
 | `GET` | `/settings` | Every service's runtime settings keyed by service name (`torrent-downloader` relayed, `medialab-orchestrator` local). |
