@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-02
+
 ### Added
 
 - The follow poll fetches a complete season as one season pack when nothing
