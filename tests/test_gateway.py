@@ -273,6 +273,98 @@ class TestDeletion:
     def test_delete_unknown_job_is_404(self, app_client):
         assert app_client.delete("/api/v1/jobs/nope").status_code == 404
 
+
+class TestBulkDeletion:
+    """``POST /jobs/deletion-plan`` and ``POST /jobs/delete``: one result per
+    requested id, in request order, each handled exactly as the single
+    delete is; refusals and failures are reported, never fatal."""
+
+    def _movie(self, store: JobStore, name: str, tmdb_id: int):
+        return store.create_job(
+            torrent_hash=HASH[:-2] + f"{tmdb_id:02d}",
+            release_name=name,
+            media_type=MediaType.MOVIE,
+            tmdb_id=tmdb_id,
+        )
+
+    def test_plan_lists_each_job_in_request_order_and_is_read_only(
+        self, app_client, store: JobStore, torrent_client: AsyncMock
+    ):
+        a = self._movie(store, "A.2021", 1)
+        b = self._movie(store, "B.2022", 2)
+        store.update_job(b.id, status=JobStatus.DELETED)
+        resp = app_client.post(
+            "/api/v1/jobs/deletion-plan", json={"job_ids": [b.id, "nope", a.id, a.id]}
+        )
+        assert resp.status_code == 200
+        plans = resp.json()["plans"]
+        assert [p["plan"]["job_id"] for p in plans] == [b.id, "nope", a.id]
+        assert plans[0]["job"]["status"] == "DELETED"
+        assert plans[0]["plan"]["refused"] == "already deleted"
+        assert plans[1]["job"] is None and plans[1]["plan"]["refused"] == "no such job"
+        assert plans[2]["plan"]["refused"] is None
+        assert plans[2]["plan"]["download_folder"].endswith("A.2021")
+        assert store.get_job_by_id(a.id).status is JobStatus.DOWNLOAD_SUBMITTED
+        torrent_client.remove_transfer.assert_not_awaited()
+
+    def test_delete_runs_each_job_and_reports_refusals_without_stopping(
+        self,
+        app_client,
+        store: JobStore,
+        watchlist: WatchlistStore,
+        torrent_client: AsyncMock,
+    ):
+        a = self._movie(store, "A.2021", 1)
+        gone = self._movie(store, "B.2022", 2)
+        store.update_job(gone.id, status=JobStatus.DELETED)
+        c = store.create_job(
+            torrent_hash=HASH[:-2] + "ee",
+            release_name="S.S02E05",
+            media_type=MediaType.SHOW,
+            tmdb_id=3,
+        )
+        watchlist.record_submission(3, 2, 5, c.id)
+        resp = app_client.post(
+            "/api/v1/jobs/delete", json={"job_ids": [a.id, gone.id, "nope", c.id]}
+        )
+        assert resp.status_code == 200
+        results = resp.json()["results"]
+        assert [r["job_id"] for r in results] == [a.id, gone.id, "nope", c.id]
+        assert results[0]["error"] is None and results[0]["job"]["status"] == "DELETED"
+        assert results[1]["error"] == "already deleted" and results[1]["job"]["status"] == "DELETED"
+        assert results[2]["error"] == "no such job" and results[2]["job"] is None
+        assert results[3]["error"] is None
+        assert store.get_job_by_id(a.id).status is JobStatus.DELETED
+        assert store.get_job_by_id(c.id).status is JobStatus.DELETED
+        assert watchlist.submissions(3) == {(2, 5): (SubmissionState.IGNORED, c.id)}
+        assert torrent_client.remove_transfer.await_count == 2
+
+    def test_downstream_failure_is_reported_and_the_rest_still_go(
+        self, app_client, store: JobStore, torrent_client: AsyncMock
+    ):
+        a = self._movie(store, "A.2021", 1)
+        b = self._movie(store, "B.2022", 2)
+        torrent_client.remove_transfer.side_effect = [RuntimeError("qbit down"), None]
+        results = app_client.post("/api/v1/jobs/delete", json={"job_ids": [a.id, b.id]}).json()[
+            "results"
+        ]
+        assert results[0]["error"] and "qbit down" in results[0]["error"]
+        assert results[0]["job"]["status"] != "DELETED"
+        assert results[1]["error"] is None and results[1]["job"]["status"] == "DELETED"
+
+    @pytest.mark.parametrize("ids", [[], ["x"] * 101])
+    def test_empty_or_oversized_batches_are_422(self, app_client, ids):
+        for path in ("/api/v1/jobs/deletion-plan", "/api/v1/jobs/delete"):
+            resp = app_client.post(path, json={"job_ids": ids})
+            assert resp.status_code == 422, path
+
+    def test_duplicates_collapse_to_one_result(self, app_client, store: JobStore):
+        a = self._movie(store, "A.2021", 1)
+        results = app_client.post("/api/v1/jobs/delete", json={"job_ids": [a.id, a.id]}).json()[
+            "results"
+        ]
+        assert len(results) == 1 and results[0]["error"] is None
+
     def test_retry_of_deleted_job_is_409(self, app_client, store: JobStore):
         job = store.create_job(
             torrent_hash=HASH, release_name="Foo.2021", media_type=MediaType.MOVIE, tmdb_id=1

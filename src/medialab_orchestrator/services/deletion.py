@@ -109,6 +109,14 @@ def _prune_empty_parents(path: Path, root: Path) -> None:
         parent = parent.parent
 
 
+UNKNOWN_JOB_REFUSAL = "no such job"
+
+
+def refused_plan(reason: str) -> DeletionPlan:
+    """A plan that removes nothing, for an id that cannot be acted on."""
+    return DeletionPlan(torrent=False, download_folder=None, refused=reason)
+
+
 class DeletionService:
     def __init__(
         self,

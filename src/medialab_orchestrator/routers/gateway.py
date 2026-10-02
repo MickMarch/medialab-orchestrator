@@ -12,19 +12,29 @@ from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.limiter import RATE_LIMIT_DEFAULT, limiter
 from medialab_orchestrator.schemas.errors import ErrorResponse
 from medialab_orchestrator.schemas.jobs import (
+    BulkDeleteView,
+    BulkDeletionPlanView,
+    BulkJobsRequest,
     DeletionPlanView,
     DiskUsageView,
     DownloadRequest,
     DownloadResponse,
+    JobDeleteResultView,
+    JobDeletionPlanView,
     JobsResponse,
     JobView,
 )
-from medialab_orchestrator.services.deletion import DeletionService, plan_deletion
+from medialab_orchestrator.services.deletion import (
+    UNKNOWN_JOB_REFUSAL,
+    DeletionService,
+    plan_deletion,
+    refused_plan,
+)
 from medialab_orchestrator.services.download import create_submitted_job, submit_job
 from medialab_orchestrator.services.progress import with_progress
 from medialab_orchestrator.services.redo import attach_redone_by, redo_job
 from medialab_orchestrator.services.storage import disk_usage
-from medialab_orchestrator.store import JobNotFoundError, JobStatus
+from medialab_orchestrator.store import JobNotFoundError, JobStatus, PipelineJob
 
 router = APIRouter(tags=["Gateway"])
 
@@ -120,6 +130,87 @@ def _job_or_404(ctx: AppContext, job_id: str):
         ) from exc
 
 
+def _deletion_service(ctx: AppContext) -> DeletionService:
+    return DeletionService(
+        store=ctx.store, torrent_client=ctx.torrent, jellyfin_client=ctx.jellyfin
+    )
+
+
+async def _delete_job(ctx: AppContext, job: PipelineJob) -> PipelineJob:
+    """The one delete path: execute the plan, then keep a follow from
+    re-queueing the episode."""
+    deleted = await _deletion_service(ctx).execute(job)
+    ctx.watchlist.ignore_submission_for_job(deleted.id)
+    return deleted
+
+
+@router.post(
+    "/jobs/deletion-plan",
+    response_model=BulkDeletionPlanView,
+    status_code=fastapi_status.HTTP_200_OK,
+    summary="What deleting each of these jobs would remove, in request order. No side effects.",
+    responses={**_COMMON_ERRORS, 422: {"model": ErrorResponse, "description": "Invalid body."}},
+)
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def bulk_deletion_plan(
+    request: Request, payload: BulkJobsRequest, ctx: AppContext = Depends(get_context)
+) -> BulkDeletionPlanView:
+    plans: list[JobDeletionPlanView] = []
+    for job_id in payload.unique_ids():
+        try:
+            job = ctx.store.get_job_by_id(job_id)
+        except JobNotFoundError:
+            plan = refused_plan(UNKNOWN_JOB_REFUSAL)
+            plans.append(
+                JobDeletionPlanView(job=None, plan=DeletionPlanView(job_id=job_id, **plan.__dict__))
+            )
+            continue
+        plan = plan_deletion(job)
+        plans.append(
+            JobDeletionPlanView(
+                job=JobView.from_job(job), plan=DeletionPlanView(job_id=job_id, **plan.__dict__)
+            )
+        )
+    return BulkDeletionPlanView(plans=plans)
+
+
+@router.post(
+    "/jobs/delete",
+    response_model=BulkDeleteView,
+    status_code=fastapi_status.HTTP_200_OK,
+    summary="Delete each of these jobs as DELETE /jobs/{id} would; one result per id, never fatal.",
+    responses={**_COMMON_ERRORS, 422: {"model": ErrorResponse, "description": "Invalid body."}},
+)
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def bulk_delete(
+    request: Request, payload: BulkJobsRequest, ctx: AppContext = Depends(get_context)
+) -> BulkDeleteView:
+    results: list[JobDeleteResultView] = []
+    for job_id in payload.unique_ids():
+        try:
+            job = ctx.store.get_job_by_id(job_id)
+        except JobNotFoundError:
+            results.append(JobDeleteResultView(job_id=job_id, job=None, error=UNKNOWN_JOB_REFUSAL))
+            continue
+        try:
+            deleted = await _delete_job(ctx, job)
+        except AppException as exc:
+            results.append(
+                JobDeleteResultView(job_id=job_id, job=JobView.from_job(job), error=exc.detail)
+            )
+        except Exception as exc:  # noqa: BLE001 - one job's failure must not stop the batch
+            results.append(
+                JobDeleteResultView(
+                    job_id=job_id,
+                    job=JobView.from_job(ctx.store.get_job_by_id(job_id)),
+                    error=str(exc),
+                )
+            )
+        else:
+            results.append(JobDeleteResultView(job_id=job_id, job=JobView.from_job(deleted)))
+    return BulkDeleteView(results=results)
+
+
 @router.get(
     "/jobs/{job_id}/deletion-plan",
     response_model=DeletionPlanView,
@@ -153,14 +244,7 @@ async def deletion_plan(
 async def delete_job(
     request: Request, job_id: str, ctx: AppContext = Depends(get_context)
 ) -> JobView:
-    job = _job_or_404(ctx, job_id)
-    service = DeletionService(
-        store=ctx.store, torrent_client=ctx.torrent, jellyfin_client=ctx.jellyfin
-    )
-    deleted = await service.execute(job)
-    # A follow never re-queues an episode whose download was deleted on purpose.
-    ctx.watchlist.ignore_submission_for_job(deleted.id)
-    return JobView.from_job(deleted)
+    return JobView.from_job(await _delete_job(ctx, _job_or_404(ctx, job_id)))
 
 
 @router.post(
