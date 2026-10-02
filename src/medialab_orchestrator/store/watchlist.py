@@ -24,6 +24,8 @@ from medialab_contracts import (
     FollowStartMode,
     FollowState,
     MediaType,
+    SeasonFollowMode,
+    SeasonFollowState,
     SubmissionState,
     WatchlistAddRequest,
     WatchlistItem,
@@ -35,6 +37,7 @@ _IN_MEMORY = ":memory:"
 WATCHLIST_TABLE = "watchlist_item"
 LEGACY_WATCHLIST_TABLE = "wishlist_item"
 SUBMISSION_TABLE = "follow_submission"
+SEASON_TABLE = "follow_season"
 
 _SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS {WATCHLIST_TABLE} (
@@ -64,6 +67,15 @@ CREATE TABLE IF NOT EXISTS {SUBMISSION_TABLE} (
     state        TEXT    NOT NULL,
     submitted_at TEXT    NOT NULL,
     PRIMARY KEY (tmdb_id, season, episode)
+);
+CREATE TABLE IF NOT EXISTS {SEASON_TABLE} (
+    tmdb_id       INTEGER NOT NULL,
+    season        INTEGER NOT NULL,
+    mode          TEXT    NOT NULL,
+    attempts      INTEGER NOT NULL DEFAULT 0,
+    last_tried_at TEXT,
+    job_id        TEXT,
+    PRIMARY KEY (tmdb_id, season)
 );
 """
 
@@ -120,6 +132,19 @@ ON CONFLICT (tmdb_id, season, episode) DO UPDATE SET
     state = excluded.state,
     submitted_at = excluded.submitted_at
 """
+
+# A tried attempt adds one and stamps the time; a plain decision changes only
+# the mode. A job id, once known, is kept until the row is cleared.
+_SET_SEASON_MODE = f"""
+INSERT INTO {SEASON_TABLE} (tmdb_id, season, mode, attempts, last_tried_at, job_id)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (tmdb_id, season) DO UPDATE SET
+    mode = excluded.mode,
+    attempts = attempts + excluded.attempts,
+    last_tried_at = COALESCE(excluded.last_tried_at, last_tried_at),
+    job_id = COALESCE(excluded.job_id, job_id)
+"""
+_SELECT_SEASON = f"SELECT * FROM {SEASON_TABLE} WHERE tmdb_id = ? AND season = ?"
 
 # rowid breaks ties between adds within the same second.
 _NEWEST_FIRST = " ORDER BY added_at DESC, rowid DESC"
@@ -201,12 +226,14 @@ class WatchlistStore:
         return _row_to_item(row) if row is not None else None
 
     def remove(self, media_type: MediaType, tmdb_id: int) -> None:
-        """Delete the row whatever its kind; absent is a no-op."""
+        """Delete the row whatever its kind, and a show's season states; absent is a no-op."""
         with self._cursor() as cur:
             cur.execute(
                 f"DELETE FROM {WATCHLIST_TABLE} WHERE media_type = ? AND tmdb_id = ?",
                 (media_type.value, tmdb_id),
             )
+            if media_type is MediaType.SHOW:
+                cur.execute(f"DELETE FROM {SEASON_TABLE} WHERE tmdb_id = ?", (tmdb_id,))
 
     def remove_saved(self, media_type: MediaType, tmdb_id: int) -> None:
         """Delete the row only when it is a plain saved title; a follow stays."""
@@ -267,9 +294,11 @@ class WatchlistStore:
         return _row_to_item(row)
 
     def unfollow(self, tmdb_id: int) -> None:
-        """Back to a saved row with every follow column cleared; absent is a no-op."""
+        """Back to a saved row with every follow column and season state cleared;
+        absent is a no-op."""
         with self._cursor() as cur:
             cur.execute(_UNFOLLOW, (WatchlistKind.SAVED.value, MediaType.SHOW.value, tmdb_id))
+            cur.execute(f"DELETE FROM {SEASON_TABLE} WHERE tmdb_id = ?", (tmdb_id,))
 
     def set_paused(self, tmdb_id: int, paused: bool) -> WatchlistItem:
         """Pause or resume a follow; the row must be a follow."""
@@ -296,6 +325,40 @@ class WatchlistStore:
                     "WHERE media_type = ? AND tmdb_id = ?",
                     (last_submitted, MediaType.SHOW.value, tmdb_id),
                 )
+
+    # Season states (season packs)
+
+    def season_states(self, tmdb_id: int) -> dict[int, SeasonFollowState]:
+        """The seasons of a follow that have a recorded mode, by season number."""
+        with self._cursor() as cur:
+            rows = cur.execute(
+                f"SELECT * FROM {SEASON_TABLE} WHERE tmdb_id = ? ORDER BY season", (tmdb_id,)
+            ).fetchall()
+        return {row["season"]: _row_to_season(row) for row in rows}
+
+    def season_state(self, tmdb_id: int, season: int) -> SeasonFollowState | None:
+        with self._cursor() as cur:
+            row = cur.execute(_SELECT_SEASON, (tmdb_id, season)).fetchone()
+        return _row_to_season(row) if row is not None else None
+
+    def set_season_mode(
+        self,
+        tmdb_id: int,
+        season: int,
+        mode: SeasonFollowMode,
+        *,
+        tried: bool = False,
+        job_id: str | None = None,
+    ) -> SeasonFollowState:
+        """Record the season's mode. ``tried`` counts one pack attempt and stamps
+        it; ``job_id`` records the pack job once submitted."""
+        with self._cursor() as cur:
+            cur.execute(
+                _SET_SEASON_MODE,
+                (tmdb_id, season, mode.value, int(tried), _now() if tried else None, job_id),
+            )
+            row = cur.execute(_SELECT_SEASON, (tmdb_id, season)).fetchone()
+        return _row_to_season(row)
 
     # Submissions
 
@@ -387,6 +450,16 @@ def _row_to_follow(row: sqlite3.Row) -> FollowState | None:
         followed_at=datetime.fromisoformat(row["followed_at"]),
         last_checked_at=_optional_timestamp(row["last_checked_at"]),
         last_submitted=row["last_submitted"],
+    )
+
+
+def _row_to_season(row: sqlite3.Row) -> SeasonFollowState:
+    return SeasonFollowState(
+        season=row["season"],
+        mode=SeasonFollowMode(row["mode"]),
+        attempts=row["attempts"],
+        last_tried_at=_optional_timestamp(row["last_tried_at"]),
+        job_id=row["job_id"],
     )
 
 

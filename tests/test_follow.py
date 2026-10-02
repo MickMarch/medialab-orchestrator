@@ -18,6 +18,7 @@ from medialab_contracts import (
     LibraryTmdbIdsResponse,
     MediaType,
     Season,
+    SeasonFollowMode,
     SeriesEpisodesResponse,
     ShowBrowseResponse,
     SubmissionState,
@@ -35,6 +36,8 @@ from medialab_orchestrator.services.follow import (
     FollowPoller,
     annotate_follow,
     episode_code,
+    pack_eligible,
+    season_code,
     wanted_episodes,
 )
 from medialab_orchestrator.store import JobStatus, JobStore, WatchlistStore
@@ -50,6 +53,10 @@ WEBHOOK_URL = "https://discord.example/webhook"
 RESOLUTION = "720p"
 MIN_SEEDERS = 50
 PER_TICK = 2
+PACK_SEEDERS = 20
+PACK_TIMEOUT = 30
+RETRY_TIMEOUT = 90
+RETRY_SEEDERS = 5
 DETAIL = {
     "status": "success",
     "data": {"name": TITLE, "first_air_date": "2008-01-20", "poster_path": None, "overview": ""},
@@ -70,13 +77,16 @@ def _browse(*episodes: EpisodeState, tmdb_id: int = SHOW_ID) -> ShowBrowseRespon
     )
 
 
-def _listing(*episodes: EpisodeState) -> SeriesEpisodesResponse:
+def _listing(
+    *episodes: EpisodeState, next_episode: Episode | None = None
+) -> SeriesEpisodesResponse:
     """What the downloader returns; browse_show derives the state itself."""
     return SeriesEpisodesResponse(
         tmdb_id=SHOW_ID,
         status="Returning",
         seasons=[Season(season=1), Season(season=2)],
         episodes=[Episode(**e.model_dump(include=set(Episode.model_fields))) for e in episodes],
+        next_episode=next_episode,
     )
 
 
@@ -199,8 +209,18 @@ def followed(
     mocker.patch.object(follow_module.config, "follow_minimum_seeders", MIN_SEEDERS)
     mocker.patch.object(follow_module.config, "follow_max_submissions_per_tick", PER_TICK)
     mocker.patch.object(follow_module.config, "discord_notify_webhook_url", None)
+    mocker.patch.object(follow_module.config, "follow_pack_minimum_seeders", PACK_SEEDERS)
+    mocker.patch.object(follow_module.config, "follow_pack_timeout_seconds", PACK_TIMEOUT)
+    mocker.patch.object(follow_module.config, "follow_pack_retry_timeout_seconds", RETRY_TIMEOUT)
+    mocker.patch.object(follow_module.config, "follow_pack_retry_minimum_seeders", RETRY_SEEDERS)
+    # Season 1 still has an unaired episode and season 2 has a next episode
+    # coming, so every season takes the episode path here.
     torrent_client.series_episodes.return_value = _listing(
-        _episode(1, 2, 10), _episode(1, 1, 20), _episode(2, 1, 5)
+        _episode(1, 2, 10),
+        _episode(1, 1, 20),
+        _episode(1, 3, None),
+        _episode(2, 1, 5),
+        next_episode=Episode(season=2, episode=2, air_date=TODAY + timedelta(days=7)),
     )
     torrent_client.tmdb_detail.return_value = DETAIL
     torrent_client.download.side_effect = lambda **kw: {
@@ -251,6 +271,13 @@ class TestTick:
         torrent_client.pick_torrent.assert_any_await(
             TITLE, season=1, episode=1, resolution=RESOLUTION, min_seeders=MIN_SEEDERS
         )
+
+    async def test_an_airing_season_never_asks_for_a_pack(
+        self, poller: FollowPoller, torrent_client, watchlist: WatchlistStore
+    ):
+        await poller.tick()
+        assert all("episode" in call.kwargs for call in torrent_client.pick_torrent.await_args_list)
+        assert watchlist.season_states(SHOW_ID) == {}
 
     async def test_no_candidate_moves_on_to_the_next_episode(
         self, poller: FollowPoller, store: JobStore, torrent_client
@@ -393,6 +420,212 @@ class TestNotify:
         )
 
 
+def _pack(season: int) -> dict:
+    return {
+        "fileName": f"Show.S{season:02d}.COMPLETE.720p",
+        "fileUrl": f"magnet:?xt=urn:btih:pack{season}",
+        "nbSeeders": 40,
+    }
+
+
+def _pick_calls(torrent_client) -> list[tuple]:
+    """(season, episode, min_seeders, timeout_seconds) per pick call."""
+    return [
+        (
+            c.kwargs["season"],
+            c.kwargs.get("episode"),
+            c.kwargs["min_seeders"],
+            c.kwargs.get("timeout_seconds"),
+        )
+        for c in torrent_client.pick_torrent.await_args_list
+    ]
+
+
+@pytest.fixture
+def pack_followed(followed, watchlist: WatchlistStore, torrent_client) -> WatchlistItem:
+    """Season 1 complete (two aired episodes), season 2 airing (one aired, one
+    not), followed from S01E02 so the start season is still pack-eligible."""
+    torrent_client.series_episodes.return_value = _listing(
+        _episode(1, 1, 20), _episode(1, 2, 10), _episode(2, 1, 5), _episode(2, 2, None)
+    )
+    return watchlist.follow(
+        SHOW_ID,
+        FollowRequest(
+            start=FollowStart(mode=FollowStartMode.FROM, season=1, episode=2),
+            resolution=RESOLUTION,
+        ),
+    )
+
+
+class TestPackEligibility:
+    def test_complete_untouched_season_is_eligible(self):
+        browse = _browse(_episode(1, 1, 20), _episode(1, 2, 10), _episode(2, 1, 5))
+        assert pack_eligible(browse, 1, {}, now=NOW, delay_hours=DELAY_HOURS)
+
+    def test_airing_or_undated_season_is_not(self):
+        browse = _browse(_episode(1, 1, 20), _episode(1, 2, None))
+        assert not pack_eligible(browse, 1, {}, now=NOW, delay_hours=DELAY_HOURS)
+        fresh = _browse(_episode(1, 1, 20), _episode(1, 2, 0))
+        assert not pack_eligible(fresh, 1, {}, now=NOW, delay_hours=DELAY_HOURS)
+
+    def test_anything_fetched_queued_or_submitted_disqualifies(self):
+        in_library = _browse(_episode(1, 1, 20, in_library=True), _episode(1, 2, 10))
+        assert not pack_eligible(in_library, 1, {}, now=NOW, delay_hours=DELAY_HOURS)
+        queued = _browse(_episode(1, 1, 20, queued_job_id="j"), _episode(1, 2, 10))
+        assert not pack_eligible(queued, 1, {}, now=NOW, delay_hours=DELAY_HOURS)
+        clean = _browse(_episode(1, 1, 20), _episode(1, 2, 10))
+        submissions = {(1, 1): (SubmissionState.IGNORED, None)}
+        assert not pack_eligible(clean, 1, submissions, now=NOW, delay_hours=DELAY_HOURS)
+
+    def test_a_season_tmdb_still_expects_more_of_is_not(self):
+        upcoming = Episode(season=1, episode=3, air_date=TODAY + timedelta(days=7))
+        browse = _browse(_episode(1, 1, 20), _episode(1, 2, 10)).model_copy(
+            update={"next_episode": upcoming}
+        )
+        assert not pack_eligible(browse, 1, {}, now=NOW, delay_hours=DELAY_HOURS)
+        short = _browse(_episode(1, 1, 20), _episode(1, 2, 10)).model_copy(
+            update={"seasons": [Season(season=1, episode_count=10)]}
+        )
+        assert not pack_eligible(short, 1, {}, now=NOW, delay_hours=DELAY_HOURS)
+        counted = short.model_copy(update={"seasons": [Season(season=1, episode_count=2)]})
+        assert pack_eligible(counted, 1, {}, now=NOW, delay_hours=DELAY_HOURS)
+
+    def test_specials_and_empty_seasons_are_not(self):
+        browse = _browse(_episode(0, 1, 20), _episode(1, 1, 20))
+        assert not pack_eligible(browse, 0, {}, now=NOW, delay_hours=DELAY_HOURS)
+        assert not pack_eligible(browse, 5, {}, now=NOW, delay_hours=DELAY_HOURS)
+
+    def test_season_code(self):
+        assert season_code(3) == "S03"
+
+
+@pytest.mark.usefixtures("pack_followed", "notice")
+class TestPacks:
+    async def test_complete_season_is_fetched_as_one_pack_and_the_airing_one_per_episode(
+        self, poller: FollowPoller, store: JobStore, watchlist: WatchlistStore, torrent_client
+    ):
+        torrent_client.pick_torrent.side_effect = [_pack(1), _pick(2, 1)]
+        submitted = await poller.check_show(watchlist.get(MediaType.SHOW, SHOW_ID))
+        assert submitted == ["S01", "S02E01"]
+        jobs = sorted(store.list_jobs(), key=lambda j: (j.season, j.episode or 0))
+        assert [(j.season, j.episode) for j in jobs] == [(1, None), (2, 1)]
+        assert jobs[0].release_name == "Show.S01.COMPLETE.720p"
+        assert watchlist.submissions(SHOW_ID) == {
+            (1, 1): (SubmissionState.SUBMITTED, jobs[0].id),
+            (1, 2): (SubmissionState.SUBMITTED, jobs[0].id),
+            (2, 1): (SubmissionState.SUBMITTED, jobs[1].id),
+        }
+        state = watchlist.season_state(SHOW_ID, 1)
+        assert state is not None
+        assert (state.mode, state.attempts, state.job_id) == (SeasonFollowMode.PACK, 1, jobs[0].id)
+        assert _pick_calls(torrent_client) == [
+            (1, None, PACK_SEEDERS, PACK_TIMEOUT),
+            (2, 1, MIN_SEEDERS, None),
+        ]
+        item = watchlist.get(MediaType.SHOW, SHOW_ID)
+        assert item is not None and item.follow is not None
+        assert item.follow.last_submitted == "S02E01"
+
+    async def test_missing_pack_marks_the_season_notifies_and_waits(
+        self,
+        poller: FollowPoller,
+        store: JobStore,
+        watchlist: WatchlistStore,
+        torrent_client,
+        notice: AsyncMock,
+        mocker,
+    ):
+        mocker.patch.object(follow_module.config, "discord_notify_webhook_url", WEBHOOK_URL)
+        torrent_client.pick_torrent.side_effect = [None, _pick(2, 1)]
+        await poller.tick()
+        assert [(j.season, j.episode) for j in store.list_jobs()] == [(2, 1)]
+        state = watchlist.season_state(SHOW_ID, 1)
+        assert state is not None
+        assert (state.mode, state.attempts) == (SeasonFollowMode.PACK_NOT_FOUND, 1)
+        assert state.last_tried_at is not None
+        assert notice.await_args_list[0].args == (
+            WEBHOOK_URL,
+            f"Following {TITLE}: no season pack found for S01; "
+            "choose how to continue on the Watchlist",
+        )
+        # Next tick: season 1 is left alone, nothing else is wanted.
+        torrent_client.pick_torrent.reset_mock()
+        torrent_client.pick_torrent.side_effect = None
+        torrent_client.pick_torrent.return_value = None
+        await poller.tick()
+        torrent_client.pick_torrent.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        ("mode", "expected_call"),
+        [
+            (SeasonFollowMode.PACK_RETRY_TIMEOUT, (1, None, PACK_SEEDERS, RETRY_TIMEOUT)),
+            (SeasonFollowMode.PACK_RETRY_SEEDERS, (1, None, RETRY_SEEDERS, PACK_TIMEOUT)),
+            (SeasonFollowMode.PACK, (1, None, PACK_SEEDERS, PACK_TIMEOUT)),
+        ],
+    )
+    async def test_a_retry_choice_uses_its_profile_and_is_consumed(
+        self, poller: FollowPoller, watchlist: WatchlistStore, torrent_client, mode, expected_call
+    ):
+        watchlist.set_season_mode(SHOW_ID, 1, SeasonFollowMode.PACK_NOT_FOUND, tried=True)
+        watchlist.set_season_mode(SHOW_ID, 1, mode)
+        torrent_client.pick_torrent.side_effect = [None, None]
+        await poller.tick()
+        assert _pick_calls(torrent_client)[0] == expected_call
+        state = watchlist.season_state(SHOW_ID, 1)
+        assert state is not None
+        assert (state.mode, state.attempts) == (SeasonFollowMode.PACK_NOT_FOUND, 2)
+
+    async def test_a_successful_retry_lands_in_pack_with_the_job(
+        self, poller: FollowPoller, watchlist: WatchlistStore, store: JobStore, torrent_client
+    ):
+        watchlist.set_season_mode(SHOW_ID, 1, SeasonFollowMode.PACK_NOT_FOUND, tried=True)
+        watchlist.set_season_mode(SHOW_ID, 1, SeasonFollowMode.PACK_RETRY_SEEDERS)
+        torrent_client.pick_torrent.side_effect = [_pack(1), None]
+        await poller.tick()
+        state = watchlist.season_state(SHOW_ID, 1)
+        pack_job = next(j for j in store.list_jobs() if j.episode is None)
+        assert state is not None
+        assert (state.mode, state.attempts, state.job_id) == (SeasonFollowMode.PACK, 2, pack_job.id)
+
+    async def test_episodes_mode_takes_the_episode_path(
+        self, poller: FollowPoller, watchlist: WatchlistStore, torrent_client
+    ):
+        watchlist.set_season_mode(SHOW_ID, 1, SeasonFollowMode.PACK_NOT_FOUND, tried=True)
+        watchlist.set_season_mode(SHOW_ID, 1, SeasonFollowMode.EPISODES)
+        await poller.tick()
+        # The follow starts at S01E02, so that is the first episode asked for alone.
+        assert _pick_calls(torrent_client)[:2] == [
+            (1, 2, MIN_SEEDERS, None),
+            (2, 1, MIN_SEEDERS, None),
+        ]
+
+    async def test_an_episode_already_in_the_library_sends_the_rest_one_by_one(
+        self, poller: FollowPoller, torrent_client, jellyfin_client
+    ):
+        jellyfin_client.library_episodes.return_value = LibraryEpisodesResponse(
+            tmdb_id=SHOW_ID, episodes=[{"season": 1, "episode": 1}]
+        )
+        await poller.tick()
+        assert _pick_calls(torrent_client)[0] == (1, 2, MIN_SEEDERS, None)
+
+    async def test_a_pack_counts_once_against_the_tick_cap(
+        self, poller: FollowPoller, store: JobStore, torrent_client, mocker
+    ):
+        mocker.patch.object(follow_module.config, "follow_max_submissions_per_tick", 1)
+        torrent_client.pick_torrent.side_effect = [_pack(1), _pick(2, 1)]
+        await poller.tick()
+        assert [(j.season, j.episode) for j in store.list_jobs()] == [(1, None)]
+        assert torrent_client.pick_torrent.await_count == 1
+
+    async def test_downloader_error_on_the_pack_stops_the_show_for_the_tick(
+        self, poller: FollowPoller, store: JobStore, watchlist: WatchlistStore, torrent_client
+    ):
+        torrent_client.pick_torrent.side_effect = [_downloader_down(), _pick(2, 1)]
+        await poller.tick()
+        assert store.list_jobs() == []
+        assert watchlist.season_states(SHOW_ID) == {}
+
+
 class TestPickClient:
     async def test_pick_sends_the_scope_and_treats_404_as_no_candidate(self, mocker):
         request = mocker.patch.object(TorrentDownloaderClient, "request", AsyncMock())
@@ -418,6 +651,21 @@ class TestPickClient:
             accept=(404,),
         )
 
+    async def test_season_pick_omits_the_episode_and_carries_the_timeout(self, mocker):
+        request = mocker.patch.object(TorrentDownloaderClient, "request", AsyncMock())
+        request.return_value = _pack(2)
+        mocker.patch.object(torrent_downloader.config, "torrent_downloader_url", "http://td")
+        await TorrentDownloaderClient().pick_torrent(
+            TITLE, season=2, resolution=RESOLUTION, min_seeders=PACK_SEEDERS, timeout_seconds=90
+        )
+        assert request.await_args.kwargs["params"] == {
+            "query": TITLE,
+            "season": 2,
+            "resolution": RESOLUTION,
+            "min_seeders": PACK_SEEDERS,
+            "timeout_seconds": 90,
+        }
+
     async def test_pick_returns_the_result_body(self, mocker):
         request = mocker.patch.object(TorrentDownloaderClient, "request", AsyncMock())
         request.return_value = _pick(2, 5)
@@ -430,6 +678,41 @@ class TestPickClient:
 
 EPISODES_URL = f"/api/v1/watchlist/show/{SHOW_ID}/episodes"
 CHECK_URL = f"/api/v1/watchlist/show/{SHOW_ID}/follow/check"
+DECISION_URL = f"/api/v1/watchlist/show/{SHOW_ID}/seasons/1/decision"
+
+
+@pytest.mark.usefixtures("followed", "notice")
+class TestSeasonRoutes:
+    def test_episodes_carry_the_season_states(self, app_client, watchlist: WatchlistStore):
+        assert app_client.get(EPISODES_URL).json()["seasons_follow"] == []
+        watchlist.set_season_mode(SHOW_ID, 1, SeasonFollowMode.PACK_NOT_FOUND, tried=True)
+        states = app_client.get(EPISODES_URL).json()["seasons_follow"]
+        assert [(s["season"], s["mode"], s["attempts"]) for s in states] == [
+            (1, "pack_not_found", 1)
+        ]
+
+    def test_decision_needs_a_not_found_season(self, app_client, watchlist: WatchlistStore):
+        assert app_client.post(DECISION_URL, json={"mode": "episodes"}).status_code == 409
+        watchlist.set_season_mode(SHOW_ID, 1, SeasonFollowMode.EPISODES)
+        assert app_client.post(DECISION_URL, json={"mode": "pack"}).status_code == 409
+
+    def test_decision_sets_the_mode_and_keeps_the_attempts(
+        self, app_client, watchlist: WatchlistStore
+    ):
+        watchlist.set_season_mode(SHOW_ID, 1, SeasonFollowMode.PACK_NOT_FOUND, tried=True)
+        resp = app_client.post(DECISION_URL, json={"mode": "pack_retry_seeders"})
+        assert resp.status_code == 200
+        assert (resp.json()["mode"], resp.json()["attempts"]) == ("pack_retry_seeders", 1)
+        state = watchlist.season_state(SHOW_ID, 1)
+        assert state is not None and state.mode is SeasonFollowMode.PACK_RETRY_SEEDERS
+
+    def test_decision_rejects_not_found_and_needs_a_follow(
+        self, app_client, watchlist: WatchlistStore
+    ):
+        watchlist.set_season_mode(SHOW_ID, 1, SeasonFollowMode.PACK_NOT_FOUND, tried=True)
+        assert app_client.post(DECISION_URL, json={"mode": "pack_not_found"}).status_code == 422
+        watchlist.unfollow(SHOW_ID)
+        assert app_client.post(DECISION_URL, json={"mode": "episodes"}).status_code == 404
 
 
 @pytest.mark.usefixtures("followed", "notice")
@@ -444,7 +727,12 @@ class TestRoutes:
         by_key = {
             (e["season"], e["episode"]): (e["submitted"], e["wanted"]) for e in body["episodes"]
         }
-        assert by_key == {(1, 1): ("submitted", False), (1, 2): (None, True), (2, 1): (None, True)}
+        assert by_key == {
+            (1, 1): ("submitted", False),
+            (1, 2): (None, True),
+            (1, 3): (None, False),
+            (2, 1): (None, True),
+        }
 
     def test_episodes_need_a_follow(self, app_client, watchlist: WatchlistStore):
         watchlist.unfollow(SHOW_ID)

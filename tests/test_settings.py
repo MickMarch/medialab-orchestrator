@@ -34,6 +34,10 @@ class TestEngine:
             "follow_max_submissions_per_tick",
             "follow_delay_hours",
             "follow_minimum_seeders",
+            "follow_pack_minimum_seeders",
+            "follow_pack_timeout_seconds",
+            "follow_pack_retry_timeout_seconds",
+            "follow_pack_retry_minimum_seeders",
         ]
         follow_interval = rt.view("follow_poll_interval_seconds")
         assert (follow_interval.value, follow_interval.min, follow_interval.max) == (
@@ -44,6 +48,10 @@ class TestEngine:
         assert rt.view("follow_max_submissions_per_tick").value == 3
         assert rt.view("follow_delay_hours").value == 12
         assert rt.view("follow_minimum_seeders").value == 50
+        assert rt.view("follow_pack_minimum_seeders").value == 20
+        assert rt.view("follow_pack_timeout_seconds").value == 30
+        assert rt.view("follow_pack_retry_timeout_seconds").value == 90
+        assert rt.view("follow_pack_retry_minimum_seeders").value == 5
         assert rt.view("auto_retry_max").source is SettingSource.ENV
         assert rt.view("auto_resume_max").source is SettingSource.DEFAULT
         assert rt.view("health_poll_interval_seconds").value == 300
