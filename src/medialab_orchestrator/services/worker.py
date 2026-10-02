@@ -23,7 +23,11 @@ from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClien
 from medialab_orchestrator.core.config import config
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.logger import app_logger
-from medialab_orchestrator.services.metadata import resolve_title_year
+from medialab_orchestrator.services.metadata import (
+    ORPHAN_TMDB_ID,
+    parse_release_title_year,
+    resolve_title_year,
+)
 from medialab_orchestrator.services.rename import (
     RenameIncompleteError,
     apply_plan,
@@ -152,8 +156,12 @@ class PipelineWorker:
                 detail="Job reached RESOLVE_META without a torrent hash.",
             )
         # The job already carries media_type and tmdb_id; nothing else is needed
-        # from the downloader here.
-        title, year = await resolve_title_year(self._torrent, job.media_type, job.tmdb_id)
+        # from the downloader here. An orphan has no TMDB identity: its release
+        # name is the only source of a title.
+        if job.tmdb_id == ORPHAN_TMDB_ID:
+            title, year = parse_release_title_year(job.release_name)
+        else:
+            title, year = await resolve_title_year(self._torrent, job.media_type, job.tmdb_id)
         return self._store.update_job(
             job.id,
             status=JobStatus.RENAME,

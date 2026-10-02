@@ -10,11 +10,27 @@ from __future__ import annotations
 
 from typing import Any
 
+import PTN
 from medialab_contracts import MediaType
 
 from medialab_orchestrator.clients import TorrentDownloaderClient
 
 _YEAR_LENGTH = 4
+
+
+ORPHAN_TMDB_ID = 0
+"""The tmdb_id of a job the completion webhook inserted for an unknown hash:
+there is no TMDB identity to resolve, so the release name is parsed instead."""
+
+
+def parse_release_title_year(release_name: str) -> tuple[str, int]:
+    """``(title, year)`` parsed from a release name with PTN; the year is 0
+    when the name carries none. Used only for orphan jobs, so a download that
+    predates the gateway still lands under a readable folder."""
+    parsed: dict[str, Any] = PTN.parse(release_name)
+    title = str(parsed.get("title") or release_name).strip()
+    year = parsed.get("year")
+    return title, int(year) if isinstance(year, int) else 0
 
 
 def extract_title_year(media_type: MediaType, detail_body: Any) -> tuple[str, int]:

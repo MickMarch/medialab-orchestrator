@@ -18,15 +18,16 @@ from medialab_orchestrator.core.limiter import RATE_LIMIT_DEFAULT, limiter
 from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.schemas.errors import ErrorResponse
 from medialab_orchestrator.schemas.jobs import WebhookPayload
+from medialab_orchestrator.services.metadata import ORPHAN_TMDB_ID
 from medialab_orchestrator.services.rename import source_root_name
 from medialab_orchestrator.store import JobNotFoundError
 
 router = APIRouter(tags=["Webhooks"])
 
 # An orphan completion (no job for the hash, e.g. download predated the gateway)
-# is still tracked. We cannot know its media_type/tmdb_id, so it is inserted and
-# will fail at RESOLVE_META with a clear error for operator follow-up.
-_ORPHAN_TMDB_ID = 0
+# is still tracked. Its media type and TMDB id are unknown, so it is inserted
+# as a movie with ORPHAN_TMDB_ID and RESOLVE_META parses the release name
+# instead of asking TMDB; Jellyfin may match it less well than a real job.
 
 
 @router.post(
@@ -58,7 +59,7 @@ async def torrent_complete(
             torrent_hash=payload.hash,
             release_name=payload.name,
             media_type=MediaType.MOVIE,
-            tmdb_id=_ORPHAN_TMDB_ID,
+            tmdb_id=ORPHAN_TMDB_ID,
         )
         if payload.content_path:
             ctx.store.update_job(orphan.id, source_path=fields["source_path"])
