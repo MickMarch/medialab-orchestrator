@@ -11,7 +11,9 @@ from fastapi import status as fastapi_status
 from medialab_contracts import (
     FollowRequest,
     MediaType,
-    ShowBrowseResponse,
+    SeasonDecisionRequest,
+    SeasonFollowMode,
+    SeasonFollowState,
     WatchlistAddRequest,
     WatchlistItem,
     WatchlistKind,
@@ -23,7 +25,7 @@ from medialab_orchestrator.core.deps import AppContext, get_context
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.limiter import RATE_LIMIT_DEFAULT, RATE_LIMIT_SEARCH, limiter
 from medialab_orchestrator.schemas.errors import ErrorResponse
-from medialab_orchestrator.schemas.watchlist import FollowCheckResponse
+from medialab_orchestrator.schemas.watchlist import FollowCheckResponse, FollowedShowResponse
 from medialab_orchestrator.services.discover import annotate_watchlist
 from medialab_orchestrator.services.follow import annotate_follow
 from medialab_orchestrator.services.shows import browse_show
@@ -219,9 +221,10 @@ def _require_followed(ctx: AppContext, media_type: MediaType, tmdb_id: int) -> W
 
 @router.get(
     "/{media_type}/{tmdb_id}/episodes",
-    response_model=ShowBrowseResponse,
+    response_model=FollowedShowResponse,
     status_code=fastapi_status.HTTP_200_OK,
-    summary="A followed show's episodes with what the follow submitted and still wants.",
+    summary="A followed show's episodes with what the follow submitted and still wants, "
+    "and the per-season pack state.",
     responses=_FOLLOWED_SHOW_ERROR_RESPONSES,
 )
 @limiter.limit(RATE_LIMIT_SEARCH)
@@ -230,7 +233,7 @@ async def followed_show_episodes(
     media_type: MediaType,
     tmdb_id: int,
     ctx: AppContext = Depends(get_context),
-) -> ShowBrowseResponse:
+) -> FollowedShowResponse:
     item = _require_followed(ctx, media_type, tmdb_id)
     assert item.follow is not None
     browse = await browse_show(
@@ -240,13 +243,47 @@ async def followed_show_episodes(
         store=ctx.store,
         watchlist=ctx.watchlist,
     )
-    return annotate_follow(
+    annotated = annotate_follow(
         browse,
         item.follow,
         ctx.watchlist.submissions(tmdb_id),
         now=datetime.now(UTC),
         delay_hours=int(config.follow_delay_hours),
     )
+    return FollowedShowResponse(
+        **annotated.model_dump(), seasons_follow=list(ctx.watchlist.season_states(tmdb_id).values())
+    )
+
+
+@router.post(
+    "/{media_type}/{tmdb_id}/seasons/{season}/decision",
+    response_model=SeasonFollowState,
+    status_code=fastapi_status.HTTP_200_OK,
+    summary="Choose how a season whose pack was not found continues: retry longer, "
+    "retry with fewer seeders, the standard pack again, or episode by episode.",
+    responses={
+        **_FOLLOWED_SHOW_ERROR_RESPONSES,
+        409: {"model": ErrorResponse, "description": "The season is not waiting for a decision."},
+    },
+)
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def decide_season(
+    request: Request,
+    media_type: MediaType,
+    tmdb_id: int,
+    season: int,
+    payload: SeasonDecisionRequest,
+    ctx: AppContext = Depends(get_context),
+) -> SeasonFollowState:
+    _require_followed(ctx, media_type, tmdb_id)
+    current = ctx.watchlist.season_state(tmdb_id, season)
+    if current is None or current.mode is not SeasonFollowMode.PACK_NOT_FOUND:
+        raise AppException(
+            status_code=fastapi_status.HTTP_409_CONFLICT,
+            code=ErrorCode.INVALID_INPUT,
+            detail=f"Season {season} of show {tmdb_id} is not waiting for a decision.",
+        )
+    return ctx.watchlist.set_season_mode(tmdb_id, season, payload.mode)
 
 
 @router.delete(

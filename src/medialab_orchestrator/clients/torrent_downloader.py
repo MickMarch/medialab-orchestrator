@@ -90,22 +90,32 @@ class TorrentDownloaderClient(DownstreamClient):
         return await self.get(f"{API_PREFIX}/search/torrents", params=params)
 
     async def pick_torrent(
-        self, query: str, *, season: int, episode: int, resolution: str, min_seeders: int
+        self,
+        query: str,
+        *,
+        season: int,
+        resolution: str,
+        min_seeders: int,
+        episode: int | None = None,
+        timeout_seconds: int | None = None,
     ) -> Any:
-        """The downloader's automatic pick for one episode: a bare torrent
-        result, or ``None`` when it answers 404 ``NO_CANDIDATE``. Any other
-        failure (qBittorrent down, unreachable) raises as usual."""
+        """The downloader's automatic pick for one episode, or for the season's
+        pack when ``episode`` is unset: a bare torrent result, or ``None`` when
+        it answers 404 ``NO_CANDIDATE``. ``timeout_seconds`` makes that one
+        search wait longer. Any other failure (qBittorrent down, unreachable)
+        raises as usual."""
+        params: dict[str, Any] = {
+            "query": query,
+            "season": season,
+            "resolution": resolution,
+            "min_seeders": min_seeders,
+        }
+        if episode is not None:
+            params["episode"] = episode
+        if timeout_seconds is not None:
+            params["timeout_seconds"] = timeout_seconds
         return await self.request(
-            "GET",
-            f"{API_PREFIX}/search/torrents/pick",
-            params={
-                "query": query,
-                "season": season,
-                "episode": episode,
-                "resolution": resolution,
-                "min_seeders": min_seeders,
-            },
-            accept=(_NOT_FOUND,),
+            "GET", f"{API_PREFIX}/search/torrents/pick", params=params, accept=(_NOT_FOUND,)
         )
 
     async def download(self, *, source_url: str, media_type: MediaType, tmdb_id: int) -> Any:

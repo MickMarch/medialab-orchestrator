@@ -27,3 +27,10 @@ async def post_discord(webhook_url: str, content: str) -> None:
             response.raise_for_status()
     except httpx.HTTPError as exc:
         app_logger.warning("Discord notice failed: %s", exc)
+
+
+def pack_not_found_notice(title: str, season_code: str) -> str:
+    return (
+        f"Following {title}: no season pack found for {season_code}; "
+        "choose how to continue on the Watchlist"
+    )

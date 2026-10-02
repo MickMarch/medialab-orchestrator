@@ -31,6 +31,9 @@ _ONE_WEEK_SECONDS = 7 * 24 * _ONE_HOUR_SECONDS
 _ONE_WEEK_HOURS = 7 * 24
 _MAX_SUBMISSIONS_PER_TICK = 20
 _MAX_SEEDERS = 1000
+# Bounded like torrent-downloader's search_timeout_seconds, which these override per search.
+_MIN_SEARCH_TIMEOUT_SECONDS = 5
+_MAX_SEARCH_TIMEOUT_SECONDS = 120
 
 SETTINGS: tuple[SettingSpec, ...] = (
     SettingSpec(
@@ -87,6 +90,38 @@ SETTINGS: tuple[SettingSpec, ...] = (
         min=0,
         max=_MAX_SEEDERS,
         description="Seeder floor for automatic picks, separate from manual search.",
+        applies=_APPLIES_NEXT_FOLLOW_TICK,
+    ),
+    SettingSpec(
+        key="follow_pack_minimum_seeders",
+        type=SettingType.INT,
+        min=0,
+        max=_MAX_SEEDERS,
+        description="Seeder floor for a season pack pick.",
+        applies=_APPLIES_NEXT_FOLLOW_TICK,
+    ),
+    SettingSpec(
+        key="follow_pack_timeout_seconds",
+        type=SettingType.INT,
+        min=_MIN_SEARCH_TIMEOUT_SECONDS,
+        max=_MAX_SEARCH_TIMEOUT_SECONDS,
+        description="Search timeout for a season pack pick.",
+        applies=_APPLIES_NEXT_FOLLOW_TICK,
+    ),
+    SettingSpec(
+        key="follow_pack_retry_timeout_seconds",
+        type=SettingType.INT,
+        min=_MIN_SEARCH_TIMEOUT_SECONDS,
+        max=_MAX_SEARCH_TIMEOUT_SECONDS,
+        description="Search timeout when the user retries a missing pack with a longer search.",
+        applies=_APPLIES_NEXT_FOLLOW_TICK,
+    ),
+    SettingSpec(
+        key="follow_pack_retry_minimum_seeders",
+        type=SettingType.INT,
+        min=0,
+        max=_MAX_SEEDERS,
+        description="Seeder floor when the user retries a missing pack with fewer seeders.",
         applies=_APPLIES_NEXT_FOLLOW_TICK,
     ),
 )

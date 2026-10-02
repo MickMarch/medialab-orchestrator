@@ -38,6 +38,11 @@ class AppConfig(BaseSettings):
     follow_max_submissions_per_tick: int = Field(default=3)
     follow_delay_hours: int = Field(default=12)
     follow_minimum_seeders: int = Field(default=50)
+    # Season packs for the complete seasons of a follow, and the two retry profiles.
+    follow_pack_minimum_seeders: int = Field(default=20)
+    follow_pack_timeout_seconds: int = Field(default=30)
+    follow_pack_retry_timeout_seconds: int = Field(default=90)
+    follow_pack_retry_minimum_seeders: int = Field(default=5)
 
     # Discord channel webhook for follow notices; unset means no notice.
     discord_notify_webhook_url: str | None = Field(default=None)

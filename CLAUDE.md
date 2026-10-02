@@ -127,7 +127,8 @@ src/medialab_orchestrator/
 ├── clients/     base (httpx + X-API-Key), torrent_downloader, jellyfin
 ├── store/       jobs (JobStatus, PipelineJob, JobStore over sqlite3),
 │                watchlist (WatchlistStore, same DB file: watchlist_item, renamed from
-│                wishlist_item at startup, plus follow_submission keyed by show, season, episode)
+│                wishlist_item at startup, plus follow_submission keyed by show, season, episode,
+│                and follow_season: the per-season pack mode of a follow)
 ├── services/    worker (asyncio pipeline), health_poll (periodic remediation), deletion (undo a
 │                download: plan + execute), download (the submit path shared by
 │                POST /download, redo and the follow poll), redo (replace a DONE job;

@@ -12,6 +12,7 @@ from medialab_contracts import (
     FollowStart,
     FollowStartMode,
     MediaType,
+    SeasonFollowMode,
     SubmissionState,
     WatchlistAddRequest,
     WatchlistKind,
@@ -378,3 +379,41 @@ class TestSchema:
         assert jobs.get_job_by_id(job.id).tmdb_id == DUNE_ID
         assert len(watchlist.list()) == 1
         assert {"pipeline_job", WATCHLIST_TABLE, "follow_submission"} <= _tables(db_path)
+
+
+class TestSeasonStates:
+    def _followed(self, watchlist: WatchlistStore) -> None:
+        watchlist.add(MediaType.SHOW, SHOW_ID, _request("Show"))
+        watchlist.follow(SHOW_ID, _follow())
+
+    def test_absent_show_has_no_states(self, watchlist: WatchlistStore):
+        assert watchlist.season_states(SHOW_ID) == {}
+        assert watchlist.season_state(SHOW_ID, 1) is None
+
+    def test_set_mode_creates_and_a_tried_attempt_counts_and_stamps(
+        self, watchlist: WatchlistStore
+    ):
+        self._followed(watchlist)
+        state = watchlist.set_season_mode(SHOW_ID, 3, SeasonFollowMode.PACK_NOT_FOUND, tried=True)
+        assert (state.season, state.mode, state.attempts) == (3, SeasonFollowMode.PACK_NOT_FOUND, 1)
+        assert state.last_tried_at is not None and state.job_id is None
+        again = watchlist.set_season_mode(SHOW_ID, 3, SeasonFollowMode.PACK, tried=True, job_id="j")
+        assert (again.mode, again.attempts, again.job_id) == (SeasonFollowMode.PACK, 2, "j")
+
+    def test_a_decision_keeps_attempts_tried_time_and_job(self, watchlist: WatchlistStore):
+        self._followed(watchlist)
+        first = watchlist.set_season_mode(SHOW_ID, 3, SeasonFollowMode.PACK_NOT_FOUND, tried=True)
+        chosen = watchlist.set_season_mode(SHOW_ID, 3, SeasonFollowMode.PACK_RETRY_TIMEOUT)
+        assert chosen.mode is SeasonFollowMode.PACK_RETRY_TIMEOUT
+        assert (chosen.attempts, chosen.last_tried_at) == (1, first.last_tried_at)
+        assert watchlist.season_states(SHOW_ID) == {3: chosen}
+
+    def test_unfollow_and_remove_clear_the_states(self, watchlist: WatchlistStore):
+        self._followed(watchlist)
+        watchlist.set_season_mode(SHOW_ID, 1, SeasonFollowMode.EPISODES)
+        watchlist.unfollow(SHOW_ID)
+        assert watchlist.season_states(SHOW_ID) == {}
+        watchlist.follow(SHOW_ID, _follow())
+        watchlist.set_season_mode(SHOW_ID, 1, SeasonFollowMode.EPISODES)
+        watchlist.remove(MediaType.SHOW, SHOW_ID)
+        assert watchlist.season_states(SHOW_ID) == {}

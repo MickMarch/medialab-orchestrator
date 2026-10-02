@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The follow poll fetches a complete season as one season pack when nothing
+  of it has been fetched yet, including the season the follow starts in; a
+  missing pack parks the season as `pack_not_found`, posts a Discord notice,
+  and waits for the user's choice through
+  `POST /watchlist/show/{tmdb_id}/seasons/{season}/decision` (retry with a
+  longer search, retry with fewer seeders, the standard pack again, or
+  episode by episode). `GET /watchlist/show/{tmdb_id}/episodes` carries the
+  per-season state as `seasons_follow`. Four new runtime settings:
+  `follow_pack_minimum_seeders`, `follow_pack_timeout_seconds`,
+  `follow_pack_retry_timeout_seconds`, `follow_pack_retry_minimum_seeders`
+  (MickMarch/medialab#104).
+- medialab-contracts pinned to v1.1.0 for the season follow models.
+
 ## [1.2.0] - 2026-10-02
 
 ### Added
