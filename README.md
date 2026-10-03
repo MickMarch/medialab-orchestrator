@@ -35,7 +35,7 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/health` | Public. Reachability of both downstream services plus `needs_attention`, the count of jobs waiting on a human. |
+| `GET` | `/health` | Public. Reachability of both downstream services, `needs_attention` (jobs waiting on a human) and `vpn_interface_bound` (torrent-downloader's VPN assertion; `false` whenever the downloader is unreachable). Surfaced for clients to warn; enforcement stays in torrent-downloader. |
 | `GET` | `/search/tmdb?query=` | Proxy to torrent-downloader; each result gains `on_watchlist`, `watchlist_kind` and best-effort `in_library` (TMDB `tv` matches `show`). No job created. |
 | `GET` | `/search/tmdb/{movie|show}/{tmdb_id}` | Proxy. Show detail carries the season list. |
 | `GET` | `/search/tmdb/{movie|show}/{tmdb_id}/videos?season=` | Proxy: YouTube trailers and teasers, official first; `season` narrows a show to one season. |\|show}/{tmdb_id}` | Proxy. Show detail carries the season list. |
@@ -120,12 +120,28 @@ Unset means no notice; see the workspace [secrets map](../docs/secrets.md).
 ## Wiring the qBittorrent completion hook
 
 The post-download pipeline runs only when qBittorrent tells the orchestrator a
-torrent finished. Without this, jobs sit at `DOWNLOAD_SUBMITTED`.
+torrent finished. Without this, jobs sit at `DOWNLOAD_SUBMITTED` until the
+health poll notices.
 
-`src/medialab_orchestrator/scripts/notify_complete.py` is the relay. It is
-standalone and stdlib-only, so it runs anywhere Python is present: on the host
-next to qBittorrent today, or inside a qBittorrent container later with only
-the one qBittorrent setting re-pointed.
+### Containerized qBittorrent (compose stack)
+
+qBittorrent runs in the gluetun namespace and ships `curl`, so the hook is one
+command in its preferences, seeded by the workspace provision script:
+
+```
+curl -s -X POST http://medialab-orchestrator:8000/api/v1/webhooks/torrent-complete -H "Content-Type: application/json" -H "X-API-Key: <the gateway API_KEY>" -d '{"hash":"%I","name":"%N","content_path":"%F"}'
+```
+
+`%I` is the info-hash, `%N` the torrent name, `%F` the content path: the real
+root file or folder on disk, which the display name is not. gluetun must allow
+egress to the compose subnet (`FIREWALL_OUTBOUND_SUBNETS`) for the call to
+leave the namespace; the workspace compose sets that.
+
+### Host-installed qBittorrent (deprecated)
+
+`src/medialab_orchestrator/scripts/notify_complete.py` is a standalone,
+stdlib-only relay for a qBittorrent that runs on the host. It stays for one
+more release while host installs migrate to the compose layout, then goes.
 
 1. Copy `notify_complete.py` anywhere on the host (e.g.
    `C:\medialab\notify_complete.py`).
@@ -139,9 +155,7 @@ the one qBittorrent setting re-pointed.
    ```
    python "C:\medialab\notify_complete.py" "%I" "%N" "%F"
    ```
-   (`%I` info-hash, `%N` torrent name, `%F` content path: the real root file
-   or folder on disk, which the display name is not. Use the full path to
-   `python` if it is not on qBittorrent's PATH.)
+   Use the full path to `python` if it is not on qBittorrent's PATH.
 
 Verify with `GET /api/v1/jobs`: a completed torrent's job should leave
 `DOWNLOAD_SUBMITTED` and progress to `DONE`.

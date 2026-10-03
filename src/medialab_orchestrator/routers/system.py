@@ -25,13 +25,16 @@ class HealthResponse(BaseModel):
     uptime_seconds: float
     downstream: DownstreamHealth
     needs_attention: int = 0
+    # torrent-downloader's VPN assertion, relayed so clients can warn before a
+    # download is confirmed. False whenever the downloader is unreachable.
+    vpn_interface_bound: bool = False
 
 
 @router.get(
     "/health",
     response_model=HealthResponse,
     status_code=fastapi_status.HTTP_200_OK,
-    summary="Gateway health plus reachability of both downstream workers.",
+    summary="Gateway health, reachability of both downstream workers, VPN binding.",
 )
 @limiter.exempt
 async def health_check(request: Request, ctx: AppContext = Depends(get_context)) -> HealthResponse:
@@ -40,9 +43,11 @@ async def health_check(request: Request, ctx: AppContext = Depends(get_context))
     False, the gateway itself stays online."""
     torrent_ok = await ctx.torrent.is_reachable()
     jellyfin_ok = await ctx.jellyfin.is_reachable()
+    vpn_bound = await ctx.torrent.vpn_bound() if torrent_ok else False
     return HealthResponse(
         status="online",
         uptime_seconds=round(time.time() - _START_TIME, 2),
         downstream=DownstreamHealth(torrent_downloader=torrent_ok, medialab_jellyfin=jellyfin_ok),
         needs_attention=len(ctx.store.list_jobs(status=JobStatus.NEEDS_ATTENTION)),
+        vpn_interface_bound=vpn_bound,
     )

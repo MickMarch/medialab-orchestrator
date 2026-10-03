@@ -88,3 +88,31 @@ class TestHealth:
             },
         )
         assert store.get_job_by_hash(HASH).source_path == "Foo (2021) [1080p] [5.1]"
+
+
+class TestHealthVpnFlag:
+    def test_reports_the_downloader_vpn_binding(
+        self, app_client, torrent_client: AsyncMock, jellyfin_client: AsyncMock
+    ):
+        torrent_client.is_reachable.return_value = True
+        torrent_client.vpn_bound.return_value = True
+        jellyfin_client.is_reachable.return_value = True
+        assert app_client.get("/api/v1/health").json()["vpn_interface_bound"] is True
+
+    def test_false_when_the_downloader_says_unbound(
+        self, app_client, torrent_client: AsyncMock, jellyfin_client: AsyncMock
+    ):
+        torrent_client.is_reachable.return_value = True
+        torrent_client.vpn_bound.return_value = False
+        jellyfin_client.is_reachable.return_value = True
+        assert app_client.get("/api/v1/health").json()["vpn_interface_bound"] is False
+
+    def test_false_and_not_asked_when_the_downloader_is_down(
+        self, app_client, torrent_client: AsyncMock, jellyfin_client: AsyncMock
+    ):
+        torrent_client.is_reachable.return_value = False
+        jellyfin_client.is_reachable.return_value = True
+        body = app_client.get("/api/v1/health").json()
+        assert body["vpn_interface_bound"] is False
+        assert body["downstream"]["torrent_downloader"] is False
+        torrent_client.vpn_bound.assert_not_awaited()
