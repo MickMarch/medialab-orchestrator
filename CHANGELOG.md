@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-03
+
 ### Added
 
 - `GET /health` carries `vpn_interface_bound`, torrent-downloader's VPN
