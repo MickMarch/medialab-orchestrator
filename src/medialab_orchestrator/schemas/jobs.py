@@ -48,6 +48,8 @@ class JobView(BaseModel):
     seeding_removed_at: str | None = None
     placed_paths: list[str] = []
     deleted_at: str | None = None
+    deleted_hash: str | None = None
+    """The hash a DELETED job owned; ``torrent_hash`` is released on deletion."""
     redo_of: str | None = None
     """The job this one replaces, when submitted through ``POST /jobs/{id}/redo``."""
     redone_by: str | None = None

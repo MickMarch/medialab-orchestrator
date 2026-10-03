@@ -1,6 +1,7 @@
 """Persistence: the SQLite-backed pipeline job and watchlist stores."""
 
 from medialab_orchestrator.store.jobs import (
+    HashInUseError,
     JobNotFoundError,
     JobStatus,
     JobStore,
@@ -9,6 +10,7 @@ from medialab_orchestrator.store.jobs import (
 from medialab_orchestrator.store.watchlist import WatchlistItemNotFoundError, WatchlistStore
 
 __all__ = [
+    "HashInUseError",
     "JobNotFoundError",
     "JobStatus",
     "JobStore",

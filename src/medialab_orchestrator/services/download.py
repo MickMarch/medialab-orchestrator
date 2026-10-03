@@ -12,7 +12,7 @@ from medialab_orchestrator.core.errors import AppException
 from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.schemas.jobs import DownloadRequest
 from medialab_orchestrator.services.metadata import resolve_title_year
-from medialab_orchestrator.store import JobStore, PipelineJob
+from medialab_orchestrator.store import HashInUseError, JobStatus, JobStore, PipelineJob
 
 _RESPONSE_HASH_KEY = "torrent_hash"
 
@@ -61,5 +61,12 @@ async def submit_job(
     )
     torrent_hash = result.get(_RESPONSE_HASH_KEY) if isinstance(result, dict) else None
     if torrent_hash:
-        job = store.stamp_hash(job.id, torrent_hash)
+        try:
+            job = store.stamp_hash(job.id, torrent_hash)
+        except HashInUseError as exc:
+            # qBittorrent deduplicated the add onto a torrent a live job already
+            # tracks. Fail this job with the pointer instead of a 500: the
+            # existing job carries the download.
+            app_logger.warning("Download %s: %s", job.id, exc)
+            job = store.update_job(job.id, status=JobStatus.FAILED, last_error=str(exc))
     return job
