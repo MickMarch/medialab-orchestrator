@@ -116,3 +116,21 @@ class TestHealthVpnFlag:
         assert body["vpn_interface_bound"] is False
         assert body["downstream"]["torrent_downloader"] is False
         torrent_client.vpn_bound.assert_not_awaited()
+
+
+class TestWebhookIgnoresDeletedJobs:
+    def test_completion_for_a_deleted_jobs_hash_is_an_orphan(
+        self, app_client, store: JobStore, torrent_client: AsyncMock
+    ):
+        old = store.create_job(
+            torrent_hash=HASH, release_name="Old", media_type=MediaType.MOVIE, tmdb_id=5
+        )
+        store.update_job(old.id, status=JobStatus.DELETED, deleted_at="t")
+        torrent_client.transfer_info.side_effect = Exception("no info")
+        resp = app_client.post(
+            "/api/v1/webhooks/torrent-complete", json={"hash": HASH, "name": "Again"}
+        )
+        assert resp.status_code == 202
+        matched = store.get_job_by_hash(HASH)
+        assert matched.id != old.id
+        assert store.get_job_by_id(old.id).status is JobStatus.DELETED

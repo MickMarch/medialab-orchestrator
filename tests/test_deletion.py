@@ -207,3 +207,12 @@ class TestLegacySourcePath:
         assert plan_deletion(job).download_folder == str(
             media / "_incoming" / "Movies" / "Movie.2021-GRP"
         )
+
+
+class TestDeletionReleasesTheHash:
+    async def test_deleted_job_no_longer_owns_its_hash(self, service, store, media):
+        job = _job(store, JobStatus.DOWNLOADING)
+        deleted = await service.execute(job)
+        assert deleted.status is JobStatus.DELETED
+        assert deleted.torrent_hash is None
+        assert deleted.deleted_hash == HASH

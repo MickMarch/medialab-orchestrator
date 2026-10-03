@@ -631,3 +631,40 @@ class TestRedo:
         assert listed[old.id]["redone_by"] == new_id
         assert listed[new_id]["redo_of"] == old.id
         assert listed[new_id]["redone_by"] is None
+
+
+class TestDownloadHashConflicts:
+    def test_redownload_after_delete_gets_the_hash(
+        self, app_client, store: JobStore, torrent_client: AsyncMock
+    ):
+        old = store.create_job(
+            torrent_hash=HASH, release_name="Foo", media_type=MediaType.MOVIE, tmdb_id=99
+        )
+        store.update_job(old.id, status=JobStatus.DELETED, deleted_at="t")
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": HASH}
+        resp = app_client.post(
+            "/api/v1/download",
+            json={"source_url": MAGNET, "media_type": "movie", "tmdb_id": 99},
+        )
+        assert resp.status_code == 202
+        body = resp.json()["job"]
+        assert body["torrent_hash"] == HASH
+        assert body["id"] != old.id
+        assert store.get_job_by_id(old.id).status is JobStatus.DELETED
+
+    def test_hash_held_by_a_live_job_fails_the_new_job_clearly(
+        self, app_client, store: JobStore, torrent_client: AsyncMock
+    ):
+        live = store.create_job(
+            torrent_hash=HASH, release_name="Foo", media_type=MediaType.MOVIE, tmdb_id=99
+        )
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": HASH}
+        resp = app_client.post(
+            "/api/v1/download",
+            json={"source_url": MAGNET, "media_type": "movie", "tmdb_id": 99},
+        )
+        assert resp.status_code == 202
+        body = resp.json()["job"]
+        assert body["status"] == JobStatus.FAILED.value
+        assert live.id in body["last_error"]
+        assert store.get_job_by_hash(HASH).id == live.id

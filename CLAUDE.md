@@ -70,7 +70,11 @@ scope; both null is the whole title), `resolved_title`, `resolved_year`,
 computed on read from one query per listing), `created_at`, `updated_at`. A
 job is born at download submit, never at search. The webhook
 resolves by hash, then updates by id; an unmatched hash orphan-inserts a job so
-the event is still tracked.
+the event is still tracked. A `DELETED` job releases its hash into
+`deleted_hash` (store-level, on the status update), so the same torrent can be
+downloaded again and a late webhook never advances a deleted job.
+`stamp_hash` raises `HashInUseError` when a live job owns the hash; the submit
+path turns that into a `FAILED` job pointing at the owner.
 
 **Idempotency (required for safe retry):** STOP_SEEDING treats an
 already-removed torrent (404) as done. RESOLVE_META is pure reads. RENAME skips every

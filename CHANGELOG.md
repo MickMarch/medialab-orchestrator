@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Re-downloading a title whose earlier job is `DELETED` no longer fails on
+  the unique `torrent_hash`: deletion moves the hash into a new
+  `deleted_hash` column (existing deleted rows are migrated at startup), so
+  the new job is stamped and a late completion webhook is treated as an
+  orphan rather than advancing the deleted job. When a live job already owns
+  the hash, the new job is marked `FAILED` with the owner's id instead of a
+  500 (MickMarch/medialab#119).
+
 ## [1.4.0] - 2026-10-03
 
 ### Added

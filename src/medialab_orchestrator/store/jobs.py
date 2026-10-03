@@ -71,6 +71,10 @@ class PipelineJob(BaseModel):
     seeding_removed_at: str | None = None
     placed_paths: list[str] = []
     deleted_at: str | None = None
+    deleted_hash: str | None = None
+    """The info-hash a DELETED job used to own, kept for the record. The live
+    ``torrent_hash`` column is released on deletion so the same torrent can be
+    downloaded again under a new job."""
     redo_of: str | None = None
     """The id of the job this one replaces, set by ``POST /jobs/{id}/redo``."""
     created_at: str
@@ -100,6 +104,7 @@ CREATE TABLE IF NOT EXISTS pipeline_job (
     seeding_removed_at TEXT,
     placed_paths   TEXT,
     deleted_at     TEXT,
+    deleted_hash   TEXT,
     redo_of        TEXT,
     created_at     TEXT    NOT NULL,
     updated_at     TEXT    NOT NULL
@@ -138,7 +143,20 @@ _ADDED_COLUMNS: dict[str, str] = {
     "season": "INTEGER",
     "episode": "INTEGER",
     "redo_of": "TEXT",
+    "deleted_hash": "TEXT",
 }
+
+# A DELETED job must not hold the unique torrent_hash: the same torrent may be
+# downloaded again. Appended to the UPDATE that marks a job DELETED, and run at
+# startup for rows deleted before deleted_hash existed.
+_RELEASE_HASH_ASSIGNMENTS = (
+    ", deleted_hash = COALESCE(deleted_hash, torrent_hash), torrent_hash = NULL"
+)
+_RELEASE_DELETED_HASHES = """
+UPDATE pipeline_job
+SET deleted_hash = COALESCE(deleted_hash, torrent_hash), torrent_hash = NULL
+WHERE status = 'DELETED' AND torrent_hash IS NOT NULL
+"""
 
 
 def _now() -> str:
@@ -153,6 +171,15 @@ def _normalise_hash(torrent_hash: str) -> str:
 
 class JobNotFoundError(Exception):
     """Raised when a lookup or update targets an id/hash with no job row."""
+
+
+class HashInUseError(Exception):
+    """Raised when stamping a hash another live (non-DELETED) job already owns."""
+
+    def __init__(self, torrent_hash: str, job_id: str) -> None:
+        super().__init__(f"Torrent {torrent_hash} already belongs to job {job_id}")
+        self.torrent_hash = torrent_hash
+        self.job_id = job_id
 
 
 def _new_id() -> str:
@@ -183,6 +210,7 @@ class JobStore:
             for column, definition in _ADDED_COLUMNS.items():
                 if column not in present:
                     cur.execute(f"ALTER TABLE pipeline_job ADD COLUMN {column} {definition}")
+            cur.execute(_RELEASE_DELETED_HASHES)
 
     def _connect(self) -> sqlite3.Connection:
         # A file-backed DB opens per operation, so it stays on the calling
@@ -254,11 +282,22 @@ class JobStore:
         return self.get_job_by_id(job_id)
 
     def stamp_hash(self, job_id: str, torrent_hash: str) -> PipelineJob:
-        """Backfill the real info-hash onto a job once qBittorrent knows it."""
+        """Backfill the real info-hash onto a job once qBittorrent knows it.
+
+        Raises ``HashInUseError`` when a live job already owns the hash; a
+        DELETED job never does, since deletion releases it.
+        """
+        normalised = _normalise_hash(torrent_hash)
         with self._cursor() as cur:
+            owner = cur.execute(
+                "SELECT id FROM pipeline_job WHERE torrent_hash = ? AND id != ?",
+                (normalised, job_id),
+            ).fetchone()
+            if owner is not None:
+                raise HashInUseError(normalised, owner["id"])
             cur.execute(
                 "UPDATE pipeline_job SET torrent_hash = ?, updated_at = ? WHERE id = ?",
-                (_normalise_hash(torrent_hash), _now(), job_id),
+                (normalised, _now(), job_id),
             )
             if cur.rowcount == 0:
                 raise JobNotFoundError(f"No job with id {job_id}")
@@ -348,6 +387,10 @@ class JobStore:
         if isinstance(normalised.get("placed_paths"), list):
             normalised["placed_paths"] = json.dumps(normalised["placed_paths"])
         assignments = ", ".join(f"{col} = ?" for col in normalised)
+        if normalised.get("status") == JobStatus.DELETED.value:
+            # Deletion releases the unique hash so the torrent can come back
+            # under a new job; the old value stays on the row for the record.
+            assignments += _RELEASE_HASH_ASSIGNMENTS
         params = [*normalised.values(), _now(), job_id]
         with self._cursor() as cur:
             cur.execute(
@@ -384,6 +427,7 @@ def _row_to_job(row: sqlite3.Row) -> PipelineJob:
         seeding_removed_at=row["seeding_removed_at"],
         placed_paths=json.loads(row["placed_paths"]) if row["placed_paths"] else [],
         deleted_at=row["deleted_at"],
+        deleted_hash=row["deleted_hash"],
         redo_of=row["redo_of"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],

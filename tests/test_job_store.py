@@ -3,7 +3,13 @@
 import pytest
 from medialab_contracts import MediaType
 
-from medialab_orchestrator.store import JobNotFoundError, JobStatus, JobStore, PipelineJob
+from medialab_orchestrator.store import (
+    HashInUseError,
+    JobNotFoundError,
+    JobStatus,
+    JobStore,
+    PipelineJob,
+)
 
 HASH = "ABCDEF0123456789ABCDEF0123456789ABCDEF01"
 RELEASE = "Show.Name.S01.1080p.GROUP"
@@ -250,3 +256,62 @@ class TestPlacedPaths:
         job = store.create_job(release_name="x", media_type=MediaType.MOVIE, tmdb_id=1)
         assert job.placed_paths == []
         assert job.deleted_at is None
+
+
+class TestDeletedJobsReleaseTheirHash:
+    def test_marking_deleted_moves_the_hash_aside(self, store: JobStore):
+        job = _create(store, torrent_hash=HASH)
+        deleted = store.update_job(job.id, status=JobStatus.DELETED, deleted_at="t")
+        assert deleted.torrent_hash is None
+        assert deleted.deleted_hash == HASH.lower()
+        with pytest.raises(JobNotFoundError):
+            store.get_job_by_hash(HASH)
+
+    def test_same_hash_can_be_stamped_on_a_new_job(self, store: JobStore):
+        old = _create(store, torrent_hash=HASH)
+        store.update_job(old.id, status=JobStatus.DELETED, deleted_at="t")
+        new = _create(store)
+        stamped = store.stamp_hash(new.id, HASH)
+        assert stamped.torrent_hash == HASH.lower()
+        assert store.get_job_by_hash(HASH).id == new.id
+
+    def test_duplicate_live_hash_raises_a_typed_error(self, store: JobStore):
+        a = _create(store, torrent_hash=HASH)
+        b = _create(store)
+        with pytest.raises(HashInUseError) as excinfo:
+            store.stamp_hash(b.id, HASH)
+        assert excinfo.value.job_id == a.id
+
+    def test_existing_deleted_rows_are_migrated_on_startup(self, tmp_path):
+        import sqlite3
+
+        db = tmp_path / "pre.db"
+        conn = sqlite3.connect(db)
+        conn.executescript(
+            """
+            CREATE TABLE pipeline_job (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+                torrent_hash TEXT UNIQUE, release_name TEXT NOT NULL, media_type TEXT NOT NULL,
+                tmdb_id INTEGER NOT NULL, resolved_title TEXT, resolved_year INTEGER,
+                source_path TEXT, dest_path TEXT, status TEXT NOT NULL, last_error TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            INSERT INTO pipeline_job
+                (id, torrent_hash, release_name, media_type, tmdb_id, status,
+                 created_at, updated_at)
+            VALUES
+                ('gone', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'X', 'movie', 7,
+                 'DELETED', 't', 't'),
+                ('live', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'Y', 'movie', 8,
+                 'DONE', 't', 't');
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        store = JobStore(db_path=str(db))
+        gone = store.get_job_by_id("gone")
+        assert gone.torrent_hash is None
+        assert gone.deleted_hash == "a" * 40
+        assert store.get_job_by_id("live").torrent_hash == "b" * 40
