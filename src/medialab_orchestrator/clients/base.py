@@ -62,6 +62,11 @@ class DownstreamClient:
         self._base_url = base_url.rstrip("/")
         self._headers = {API_KEY_HEADER: api_key} if api_key else {}
         self._timeout = timeout_seconds
+        # Tests inject an httpx.MockTransport here; production leaves it None.
+        self._transport: httpx.AsyncBaseTransport | None = None
+
+    def _http_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(timeout=self._timeout, transport=self._transport)
 
     async def request(
         self,
@@ -79,7 +84,7 @@ class DownstreamClient:
         instead of as DOWNSTREAM_UNAVAILABLE."""
         url = f"{self._base_url}{path}"
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with self._http_client() as client:
                 response = await client.request(
                     method, url, params=params, json=json, headers=self._headers
                 )
@@ -134,12 +139,19 @@ class DownstreamClient:
     async def delete(self, path: str, *, accept: tuple[int, ...] = ()) -> Any:
         return await self.request("DELETE", path, accept=accept)
 
-    async def is_reachable(self) -> bool:
-        """Probe the downstream ``/api/v1/health`` endpoint for the gateway's
-        aggregated health signal. Never raises - returns False on any failure."""
+    async def health(self) -> Any:
+        """The downstream ``/api/v1/health`` body when it answers 200, else
+        ``None``. Never raises: a worker that is down, slow or returning an
+        error is simply absent."""
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with self._http_client() as client:
                 response = await client.get(f"{self._base_url}{HEALTH_PATH}")
-            return response.status_code == httpx.codes.OK
         except httpx.HTTPError:
-            return False
+            return None
+        if response.status_code != httpx.codes.OK:
+            return None
+        return _json_or_none(response)
+
+    async def is_reachable(self) -> bool:
+        """Whether the downstream health probe answered 200."""
+        return await self.health() is not None

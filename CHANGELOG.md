@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `GET /health` carries `vpn_interface_bound`, torrent-downloader's VPN
+  assertion, so the web UI and the bot can warn before a download is
+  confirmed. `false` whenever the downloader is unreachable. Enforcement is
+  unchanged and stays in torrent-downloader (MickMarch/medialab#113).
+
+### Changed
+
+- `.env.example` points `TORRENT_DOWNLOADER_URL` at `http://gluetun:8001`:
+  the downloader runs inside the gluetun VPN namespace in the compose
+  layout (MickMarch/medialab#113).
+
+### Deprecated
+
+- `scripts/notify_complete.py`, the host-side completion relay. The compose
+  layout uses a `curl` autorun command inside the qBittorrent container
+  instead; the README documents both. The relay is removed one release
+  after the containerized stack ships.
+
 ## [1.3.1] - 2026-10-02
 
 ### Fixed

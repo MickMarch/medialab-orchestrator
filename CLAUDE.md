@@ -30,7 +30,9 @@ defaults. Every field is optional at import time and required at runtime.
 `MEDIA_MOUNT_PATH` is the in-container mount of the host media dir; file moves
 go through it (shared volume, never a host shell-out).
 `scripts/notify_complete.py` reads its own minimal env (`ORCHESTRATOR_URL`,
-`ORCHESTRATOR_API_KEY`) because it runs as a qBittorrent child process.
+`ORCHESTRATOR_API_KEY`) because it runs as a qBittorrent child process. It is
+deprecated: the compose layout posts the webhook with a `curl` autorun command
+from inside the qBittorrent container (README, "Wiring the completion hook").
 
 ## Job lifecycle (`pipeline_job`)
 

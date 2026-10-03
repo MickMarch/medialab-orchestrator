@@ -22,6 +22,9 @@ from medialab_orchestrator.core.errors import ErrorCode
 # collapsing into DOWNSTREAM_UNAVAILABLE.
 _DISCOVER_RELAYED = frozenset({ErrorCode.TMDB_UNAVAILABLE, ErrorCode.INVALID_INPUT})
 _NOT_FOUND = 404
+# torrent-downloader's /health reports whether qBittorrent is bound to an
+# accepted VPN interface; the gateway surfaces it, the downloader enforces it.
+_VPN_BOUND_KEY = "vpn_interface_bound"
 
 
 class TorrentDownloaderClient(DownstreamClient):
@@ -33,6 +36,13 @@ class TorrentDownloaderClient(DownstreamClient):
             base_url=config.torrent_downloader_url or "",
             api_key=config.torrent_downloader_api_key,
         )
+
+    async def vpn_bound(self) -> bool:
+        """Whether the downloader reports qBittorrent bound to an accepted VPN
+        interface. Unreachable, erroring or silent on the flag all read as
+        unbound."""
+        body = await self.health()
+        return isinstance(body, dict) and bool(body.get(_VPN_BOUND_KEY))
 
     async def search_tmdb(self, query: str) -> Any:
         return await self.get(f"{API_PREFIX}/search/tmdb", params={"query": query})
