@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-03
+
 ### Fixed
 
 - Re-downloading a title whose earlier job is `DELETED` no longer fails on
