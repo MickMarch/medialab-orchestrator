@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-04
+
 ### Added
 
 - `DISMISSED` job status with `POST /jobs/{id}/dismiss` and bulk `POST /jobs/dismiss`:
