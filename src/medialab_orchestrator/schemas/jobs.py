@@ -5,6 +5,7 @@ from __future__ import annotations
 from medialab_contracts import JobProgress, MediaType
 from pydantic import BaseModel, Field
 
+from medialab_orchestrator.services.attention import AttentionCause, attention_cause
 from medialab_orchestrator.store import JobStatus, PipelineJob
 
 
@@ -54,6 +55,10 @@ class JobView(BaseModel):
     """The job this one replaces, when submitted through ``POST /jobs/{id}/redo``."""
     redone_by: str | None = None
     """The newest job that replaces this one; computed on read, never stored."""
+    dismissed_at: str | None = None
+    attention_cause: AttentionCause | None = None
+    """Why a FAILED or NEEDS_ATTENTION job waits on a human; derived on read
+    from ``last_error`` so clients can offer the action that resolves it."""
     created_at: str
     updated_at: str
     progress: JobProgress | None = None
@@ -61,7 +66,7 @@ class JobView(BaseModel):
 
     @classmethod
     def from_job(cls, job: PipelineJob) -> JobView:
-        return cls(**job.model_dump())
+        return cls(**job.model_dump(), attention_cause=attention_cause(job))
 
 
 class DeletionPlanView(BaseModel):
@@ -81,7 +86,8 @@ BULK_JOBS_MAX = 100
 
 
 class BulkJobsRequest(BaseModel):
-    """Body of ``POST /jobs/deletion-plan`` and ``POST /jobs/delete``."""
+    """Body of ``POST /jobs/deletion-plan``, ``POST /jobs/delete`` and
+    ``POST /jobs/dismiss``."""
 
     job_ids: list[str] = Field(min_length=1, max_length=BULK_JOBS_MAX)
 
@@ -115,6 +121,20 @@ class JobDeleteResultView(BaseModel):
 class BulkDeleteView(BaseModel):
     status: str = "success"
     results: list[JobDeleteResultView]
+
+
+class JobDismissResultView(BaseModel):
+    """One entry of a bulk dismiss. ``error`` carries the refusal reason or
+    "no such job"; ``job`` is the row as it stands afterwards."""
+
+    job_id: str
+    job: JobView | None
+    error: str | None = None
+
+
+class BulkDismissView(BaseModel):
+    status: str = "success"
+    results: list[JobDismissResultView]
 
 
 class DownloadResponse(BaseModel):

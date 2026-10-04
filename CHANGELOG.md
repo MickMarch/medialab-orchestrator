@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `DISMISSED` job status with `POST /jobs/{id}/dismiss` and bulk `POST /jobs/dismiss`:
+  close a `FAILED` or `NEEDS_ATTENTION` job a human judged not worth pursuing. The
+  error and files stay; the follow submission is marked ignored; the job leaves the
+  health poll and the `needs_attention` count.
+- `attention_cause` and `dismissed_at` on the job view, so clients can offer the
+  action that resolves a flagged job (Redo for a vanished torrent, Retry otherwise).
+
+### Changed
+
+- `POST /jobs/{id}/redo` also accepts a `NEEDS_ATTENTION` job that placed nothing.
+- `POST /jobs/{id}/retry` returns `409 JOB_NOT_RETRYABLE` for a `DELETED` or
+  `DISMISSED` job.
+
 ## [1.4.1] - 2026-10-03
 
 ### Fixed

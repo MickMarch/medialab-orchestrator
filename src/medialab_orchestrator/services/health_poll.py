@@ -24,6 +24,10 @@ from medialab_orchestrator.clients import TorrentDownloaderClient
 from medialab_orchestrator.core.config import config
 from medialab_orchestrator.core.errors import AppException
 from medialab_orchestrator.core.logger import app_logger
+from medialab_orchestrator.services.attention import (
+    TORRENT_GONE_MESSAGE,
+    download_error_message,
+)
 from medialab_orchestrator.services.progress import (
     AWAITING_DOWNLOAD,
     advance_to_downloading,
@@ -41,7 +45,9 @@ COMPLETE_STATES = frozenset(
 """qBittorrent states that only exist once the download reached 100%."""
 
 _COMPLETE_PROGRESS = 1.0
-_TERMINAL = frozenset({JobStatus.DONE, JobStatus.NEEDS_ATTENTION, JobStatus.DELETED})
+_TERMINAL = frozenset(
+    {JobStatus.DONE, JobStatus.NEEDS_ATTENTION, JobStatus.DELETED, JobStatus.DISMISSED}
+)
 
 
 def is_complete(transfer: dict[str, Any]) -> bool:
@@ -121,7 +127,7 @@ class HealthPoller:
             return
         transfer = transfers.get(job.torrent_hash.lower())
         if transfer is None:
-            self._flag(job, "torrent no longer in qBittorrent")
+            self._flag(job, TORRENT_GONE_MESSAGE)
         elif transfer.get("state") in ERROR_STATES:
             await self._resume(job, str(transfer.get("state")))
         elif is_complete(transfer):
@@ -131,7 +137,7 @@ class HealthPoller:
 
     async def _resume(self, job: PipelineJob, state: str) -> None:
         if job.remediations >= self._auto_resume_max:
-            self._flag(job, f"qBittorrent state {state} after {job.remediations} resumes")
+            self._flag(job, download_error_message(state, job.remediations))
             return
         assert job.torrent_hash is not None
         await self._torrent.resume_transfer(job.torrent_hash)
