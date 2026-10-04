@@ -130,8 +130,14 @@ class DownstreamClient:
     ) -> Any:
         return await self.request("GET", path, params=params, relay=relay)
 
-    async def post(self, path: str, *, json: dict[str, Any] | None = None) -> Any:
-        return await self.request("POST", path, json=json)
+    async def post(
+        self,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        relay: frozenset[ErrorCode] = _NO_RELAY,
+    ) -> Any:
+        return await self.request("POST", path, json=json, relay=relay)
 
     async def put(self, path: str, *, json: dict[str, Any] | None = None) -> Any:
         return await self.request("PUT", path, json=json, accept=(404, 422))

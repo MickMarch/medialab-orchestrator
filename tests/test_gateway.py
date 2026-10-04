@@ -32,6 +32,19 @@ class TestDownload:
         assert store.get_job_by_hash(HASH).tmdb_id == 99
         torrent_client.download.assert_awaited_once()
 
+    def test_source_unreachable_passes_through_as_503(self, app_client, torrent_client: AsyncMock):
+        # The downloader could not fetch the details page; the bot and web
+        # need the retryable code, not a generic 502.
+        torrent_client.download.side_effect = AppException(
+            status_code=503, code=ErrorCode.SOURCE_UNREACHABLE, detail="source down"
+        )
+        resp = app_client.post(
+            "/api/v1/download",
+            json={"source_url": "https://x.test/page.html", "media_type": "movie", "tmdb_id": 99},
+        )
+        assert resp.status_code == 503
+        assert resp.json()["code"] == ErrorCode.SOURCE_UNREACHABLE.value
+
     def test_forwards_source_url_to_downloader(self, app_client, torrent_client: AsyncMock):
         torrent_client.download.return_value = {"status": "success", "torrent_hash": HASH}
         app_client.post(

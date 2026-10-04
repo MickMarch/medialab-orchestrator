@@ -34,6 +34,9 @@ class ErrorCode(str, Enum):
     REDO_DELETION_FAILED = "REDO_DELETION_FAILED"
     # Relayed from torrent-downloader when TMDB is unconfigured or unreachable.
     TMDB_UNAVAILABLE = "TMDB_UNAVAILABLE"
+    # Relayed from torrent-downloader when the details page a download points
+    # at could not be fetched; the request was valid and a retry may succeed.
+    SOURCE_UNREACHABLE = "SOURCE_UNREACHABLE"
 
 
 class AppException(Exception):

@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `POST /download` and `POST /jobs/{id}/redo` pass torrent-downloader's
+  `503 SOURCE_UNREACHABLE` through with its status and code instead of
+  collapsing it into `502 DOWNSTREAM_UNAVAILABLE`, so the bot and web can tell
+  a retryable source fetch failure from a dead worker.
+
 ## [1.5.1] - 2026-10-04
 
 ### Fixed

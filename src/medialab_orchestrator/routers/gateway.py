@@ -49,6 +49,12 @@ _COMMON_ERRORS: dict[int | str, dict[str, Any]] = {
     429: {"model": ErrorResponse, "description": "Rate limit exceeded."},
     502: {"model": ErrorResponse, "description": "Downstream worker unavailable."},
 }
+_SOURCE_UNREACHABLE_RESPONSE: dict[int | str, dict[str, Any]] = {
+    503: {
+        "model": ErrorResponse,
+        "description": "The torrent source page could not be reached; retry later.",
+    },
+}
 
 
 @router.post(
@@ -56,7 +62,11 @@ _COMMON_ERRORS: dict[int | str, dict[str, Any]] = {
     response_model=DownloadResponse,
     status_code=fastapi_status.HTTP_202_ACCEPTED,
     summary="Submit a download. Creates a pipeline job and forwards to torrent-downloader.",
-    responses={**_COMMON_ERRORS, 422: {"model": ErrorResponse, "description": "Invalid body."}},
+    responses={
+        **_COMMON_ERRORS,
+        **_SOURCE_UNREACHABLE_RESPONSE,
+        422: {"model": ErrorResponse, "description": "Invalid body."},
+    },
 )
 @limiter.limit(RATE_LIMIT_DEFAULT)
 async def submit_download(
@@ -320,6 +330,7 @@ async def delete_job(
             "description": "Deleting the original failed; the replacement row is kept "
             "for the next attempt.",
         },
+        **_SOURCE_UNREACHABLE_RESPONSE,
     },
 )
 @limiter.limit(RATE_LIMIT_DEFAULT)
