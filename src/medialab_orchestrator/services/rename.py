@@ -2,7 +2,10 @@
 
 Movies:  ``Movies/Title (Year)/Title (Year).ext``, other videos in ``extras/``.
 Shows:   ``Shows/Title (Year)/Season NN/Title SNNEMM.ext``, specials in
-         ``Season 00``, multi-episode files as ``SNNEMM-EMM``.
+         ``Season 00``, multi-episode files as ``SNNEMM-EMM``; a video with
+         no episode number (a bundled movie, a featurette) goes to
+         ``extras/`` under the series folder and is reported on the plan.
+         A pack where no video parses at all fails the job.
 
 Title and year come from TMDB (resolved upstream), never from release names.
 PTN parses each file name for season and episode only. Subtitle files follow
@@ -32,7 +35,8 @@ from medialab_orchestrator.core.errors import AppException, ErrorCode
 VIDEO_EXTENSIONS = frozenset({".mkv", ".mp4", ".avi", ".m4v", ".ts", ".webm", ".mov"})
 SUBTITLE_EXTENSIONS = frozenset({".srt", ".ass", ".sub", ".idx", ".vtt"})
 EXTRAS_DIR = "extras"
-"""Jellyfin lists videos in this movie subfolder as extras, not as versions."""
+"""Jellyfin lists videos in this subfolder as extras: not as versions of a
+movie, not as episodes of a series."""
 
 _SEASON_DIR_TEMPLATE = "Season {season:02d}"
 _EPISODE_TEMPLATE = "S{season:02d}E{episode:02d}"
@@ -61,6 +65,9 @@ class RenamePlan:
     source: Path
     scan_dir: Path
     moves: tuple[tuple[Path, Path], ...]
+    extras: tuple[Path, ...] = ()
+    """Show videos that carried no episode number and were routed to
+    ``extras/``; surfaced so the placement is never silent."""
 
 
 def source_root_name(content_path: str) -> str:
@@ -166,24 +173,34 @@ def _companions(video: MediaFile, files: Sequence[MediaFile]) -> list[tuple[Medi
 
 def _plan_show(
     *, media_root: Path, title: str, year: int, files: Sequence[MediaFile]
-) -> tuple[Path, list[tuple[Path, Path]]]:
+) -> tuple[Path, list[tuple[Path, Path]], list[Path]]:
+    """Episodes into season folders; videos with no episode number into
+    ``extras/``. Raises only when nothing parses: that is a badly named pack,
+    not a pack with extras."""
     series_dir = media_root / title_dir(title, year)
     moves: list[tuple[Path, Path]] = []
+    extras: list[Path] = []
+    reasons: list[str] = []
     for video in filter(_is_video, files):
         try:
             season, episodes = parse_episode(video.path.name)
         except EpisodeUnparseableError as exc:
-            raise AppException(
-                status_code=fastapi_status.HTTP_422_UNPROCESSABLE_CONTENT,
-                code=ErrorCode.EPISODE_UNPARSEABLE,
-                detail=str(exc),
-            ) from exc
+            extras.append(video.path)
+            reasons.append(str(exc))
+            moves.append((video.path, series_dir / EXTRAS_DIR / video.path.name))
+            continue
         season_dir = series_dir / _SEASON_DIR_TEMPLATE.format(season=season)
         stem = episode_stem(title, season, episodes)
         moves.append((video.path, season_dir / f"{stem}{video.path.suffix.lower()}"))
         for companion, extra in _companions(video, files):
             moves.append((companion.path, season_dir / f"{stem}{extra}{companion.path.suffix}"))
-    return series_dir, moves
+    if extras and len(extras) == len(moves):
+        raise AppException(
+            status_code=fastapi_status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code=ErrorCode.EPISODE_UNPARSEABLE,
+            detail="No episode parsed from any video file. " + "; ".join(reasons),
+        )
+    return series_dir, moves, extras
 
 
 def _plan_movie(
@@ -219,11 +236,14 @@ def plan_rename(
     the located folder (staging, or the library root for legacy downloads).
     """
     source = source if source is not None else staging_root(media_root) / release_name
+    extras: list[Path] = []
     if media_type is MediaType.MOVIE:
         scan_dir, moves = _plan_movie(media_root=media_root, title=title, year=year, files=files)
     else:
-        scan_dir, moves = _plan_show(media_root=media_root, title=title, year=year, files=files)
-    return RenamePlan(source=source, scan_dir=scan_dir, moves=tuple(moves))
+        scan_dir, moves, extras = _plan_show(
+            media_root=media_root, title=title, year=year, files=files
+        )
+    return RenamePlan(source=source, scan_dir=scan_dir, moves=tuple(moves), extras=tuple(extras))
 
 
 def apply_plan(plan: RenamePlan) -> list[Path]:

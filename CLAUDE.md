@@ -45,7 +45,9 @@ STOP_SEEDING         webhook or poll -> record the on-disk root (content_path ba
 RESOLVE_META         GET /search/tmdb/{type}/{tmdb_id} -> canonical title + year
 RENAME               from <media>/_incoming/<subdir>/<root name> (legacy: the library root)
                      per video file: show -> <root>/Title (Year)/Season NN/Title SNNEMM.ext
-                     movie -> <root>/Title (Year)/Title (Year).ext (+ extras/); subs follow
+                     movie -> <root>/Title (Year)/Title (Year).ext (+ extras/); subs follow;
+                     a show video with no SxxEyy -> <root>/Title (Year)/extras/ (logged, in
+                     placed_paths); a pack where no video parses fails EPISODE_UNPARSEABLE
 SCAN                 medialab-jellyfin POST /library/scan
 DONE                 removes the job's (media_type, tmdb_id) from the watchlist when it is only
                      saved (a followed show stays); orphans skip it
@@ -171,5 +173,6 @@ src/medialab_orchestrator/
   file, except the schema and migration tests, which use `tmp_path`.
 - Downstream HTTP mocked at the client-class boundary. The webhook is
   exercised by posting to the endpoint. No live qBittorrent or Jellyfin.
-- Season parsing is validated against real release-name samples; no season
-  parseable -> `FAILED` with a clear `last_error`, never silent half-processing.
+- Season parsing is validated against real release-name samples; no episode
+  parseable in a whole pack -> `FAILED` with a clear `last_error`; a single
+  unparseable video goes to `extras/` and is logged, never silently skipped.

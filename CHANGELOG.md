@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A show pack with a video that carries no episode number (a bundled movie, a
+  featurette) no longer fails the whole job. Episodes are placed, the extra goes
+  to `extras/` under the series folder, is listed in `placed_paths` and logged at
+  WARNING. A pack where no video parses at all still fails `EPISODE_UNPARSEABLE`.
+
 ## [1.5.0] - 2026-10-04
 
 ### Added

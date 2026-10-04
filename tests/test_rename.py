@@ -9,6 +9,7 @@ from medialab_contracts import MediaType
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.services import rename as rename_module
 from medialab_orchestrator.services.rename import (
+    EXTRAS_DIR,
     EpisodeUnparseableError,
     MediaFile,
     RenameIncompleteError,
@@ -171,7 +172,44 @@ class TestPlanShow:
         )
         assert [src.name for src, _ in plan.moves] == ["Show.S01E01.mkv"]
 
-    def test_any_unparseable_episode_fails_the_whole_job(self):
+    def test_unparseable_video_goes_to_extras_and_is_reported(self):
+        # A pack with a bonus movie must not block the episodes; the extra is
+        # placed where Jellyfin lists extras and named on the plan.
+        source = SHOWS / "Show.S01"
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name=source.name,
+            source=source,
+            title="Show",
+            year=2019,
+            files=_files(source, "Show.S01E01.mkv", "Final/Show.Bonus.Featurette.mkv"),
+        )
+        series = SHOWS / "Show (2019)"
+        assert _moves(plan) == {
+            source / "Show.S01E01.mkv": series / "Season 01" / "Show S01E01.mkv",
+            source / "Final/Show.Bonus.Featurette.mkv": series
+            / EXTRAS_DIR
+            / "Show.Bonus.Featurette.mkv",
+        }
+        assert plan.extras == (source / "Final/Show.Bonus.Featurette.mkv",)
+
+    def test_well_named_pack_has_no_extras(self):
+        source = SHOWS / "Show.S01"
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name=source.name,
+            source=source,
+            title="Show",
+            year=2019,
+            files=_files(source, "Show.S01E01.mkv"),
+        )
+        assert plan.extras == ()
+
+    def test_no_parseable_episode_at_all_fails_the_job(self):
+        # Every video unparseable means a badly named pack, not a pack with
+        # extras: still loud, still the whole job.
         source = SHOWS / "Show.S01"
         with pytest.raises(AppException) as exc:
             plan_rename(
@@ -181,10 +219,11 @@ class TestPlanShow:
                 source=source,
                 title="Show",
                 year=2019,
-                files=_files(source, "Show.S01E01.mkv", "Show.Bonus.Featurette.mkv"),
+                files=_files(source, "Show.Bonus.Featurette.mkv", "info.mkv"),
             )
         assert exc.value.code is ErrorCode.EPISODE_UNPARSEABLE
         assert "Show.Bonus.Featurette.mkv" in exc.value.detail
+        assert "info.mkv" in exc.value.detail
 
     def test_single_file_torrent(self):
         single = SHOWS / "Show.S01E05.1080p.mkv"

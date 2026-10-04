@@ -30,6 +30,7 @@ from medialab_orchestrator.services.metadata import (
     resolve_title_year,
 )
 from medialab_orchestrator.services.rename import (
+    EXTRAS_DIR,
     RenameIncompleteError,
     apply_plan,
     list_files,
@@ -195,6 +196,14 @@ class PipelineWorker:
                 status_code=fastapi_status.HTTP_404_NOT_FOUND,
                 code=ErrorCode.SOURCE_NOT_FOUND,
                 detail=f"Download folder not found: {source}",
+            )
+        if plan.extras:
+            app_logger.warning(
+                "Job %s: %d video(s) with no episode number placed under %s: %s",
+                job.id,
+                len(plan.extras),
+                plan.scan_dir / EXTRAS_DIR,
+                ", ".join(p.name for p in plan.extras),
             )
         try:
             placed = await asyncio.to_thread(apply_plan, plan)

@@ -102,6 +102,39 @@ class TestHappyPath:
         assert episode.read_text() == "ep"
         assert not (tmp_path / "Shows" / TV_RELEASE).exists()
 
+    async def test_pack_with_a_bonus_movie_places_episodes_and_the_extra(
+        self,
+        worker: PipelineWorker,
+        store: JobStore,
+        torrent_client: AsyncMock,
+        jellyfin_client: AsyncMock,
+        tmp_path: Path,
+        mocker,
+        caplog,
+    ):
+        mocker.patch.object(worker_module.config, "media_mount_path", str(tmp_path))
+        pack = tmp_path / "Shows" / TV_RELEASE
+        (pack / "Final").mkdir(parents=True)
+        (pack / "Show.Name.S01E01.1080p.mkv").write_text("ep")
+        (pack / "Final" / "Show.Name.The.Movie.2023.mkv").write_text("movie")
+        _seed_tv_job(store)
+        _wire_downstream(torrent_client, jellyfin_client)
+
+        with caplog.at_level("WARNING"):
+            job = await worker.process(HASH)
+
+        series = tmp_path / "Shows" / "Show Name (2019)"
+        assert job.status is JobStatus.DONE
+        assert sorted(job.placed_paths) == sorted(
+            [
+                str(series / "Season 01" / "Show Name S01E01.mkv"),
+                str(series / "extras" / "Show.Name.The.Movie.2023.mkv"),
+            ]
+        )
+        assert (series / "extras" / "Show.Name.The.Movie.2023.mkv").read_text() == "movie"
+        assert not pack.exists()
+        assert "Show.Name.The.Movie.2023.mkv" in caplog.text
+
 
 class TestFailure:
     async def test_unparseable_episode_marks_failed(
