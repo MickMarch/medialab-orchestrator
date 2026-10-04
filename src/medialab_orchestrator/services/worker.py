@@ -23,6 +23,7 @@ from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClien
 from medialab_orchestrator.core.config import config
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.logger import app_logger
+from medialab_orchestrator.services.attention import step_error_message
 from medialab_orchestrator.services.metadata import (
     ORPHAN_TMDB_ID,
     parse_release_title_year,
@@ -99,7 +100,7 @@ class PipelineWorker:
             return self._store.update_job(
                 job.id,
                 status=JobStatus.FAILED,
-                last_error=f"{job.status.value}: {detail}",
+                last_error=step_error_message(job.status, detail),
                 attempts=job.attempts + 1,
             )
         return job

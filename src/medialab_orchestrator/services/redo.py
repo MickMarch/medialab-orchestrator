@@ -1,4 +1,7 @@
-"""Redo a finished download: replace it with a newly picked torrent.
+"""Redo a download: replace it with a newly picked torrent.
+
+Accepted for a DONE job, and for a flagged job that placed nothing (its
+torrent is gone and there is no other way to resolve it).
 
 Order matters: the replacement row is created first, then the old job's
 deletion plan is executed, then the new download is submitted. A crash or a
@@ -31,12 +34,22 @@ def attach_redone_by(views: Iterable[JobView], *, store: JobStore) -> list[JobVi
     return views
 
 
+def is_redoable(job: PipelineJob) -> bool:
+    """DONE, or flagged with nothing in the library to replace."""
+    if job.status is JobStatus.DONE:
+        return True
+    return job.status is JobStatus.NEEDS_ATTENTION and not job.placed_paths
+
+
 def _check_redoable(old: PipelineJob, payload: DownloadRequest) -> None:
-    if old.status is not JobStatus.DONE:
+    if not is_redoable(old):
         raise AppException(
             status_code=fastapi_status.HTTP_409_CONFLICT,
             code=ErrorCode.JOB_NOT_DONE,
-            detail=f"Job {old.id} is {old.status.value}; only a DONE job can be redone.",
+            detail=(
+                f"Job {old.id} is {old.status.value}; only a DONE job, or a flagged job that "
+                "placed nothing, can be redone."
+            ),
         )
     if (payload.media_type, payload.tmdb_id) != (old.media_type, old.tmdb_id):
         raise AppException(

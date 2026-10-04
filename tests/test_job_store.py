@@ -192,6 +192,9 @@ class TestAddedColumns:
             release_name="n", media_type=MediaType.MOVIE, tmdb_id=7, redo_of="old1"
         )
         assert replacement.redo_of == "old1"
+        assert old.dismissed_at is None
+        dismissed = store.update_job("old1", status=JobStatus.DISMISSED, dismissed_at="now")
+        assert (dismissed.status, dismissed.dismissed_at) == (JobStatus.DISMISSED, "now")
 
 
 class TestRedo:

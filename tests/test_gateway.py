@@ -517,6 +517,48 @@ class TestRedo:
         assert len(store.list_jobs()) == 1
         torrent_client.download.assert_not_awaited()
 
+    def _torrent_gone(self, store: JobStore, media, **fields):
+        job = store.create_job(
+            torrent_hash=HASH,
+            release_name="Show.S02E05",
+            media_type=MediaType.SHOW,
+            tmdb_id=2,
+            season=2,
+            episode=5,
+        )
+        return store.update_job(
+            job.id,
+            status=JobStatus.NEEDS_ATTENTION,
+            last_error="torrent no longer in qBittorrent",
+            **fields,
+        )
+
+    def test_needs_attention_with_nothing_placed_is_redoable(
+        self, app_client, store: JobStore, media, torrent_client, jellyfin_client
+    ):
+        torrent_client.download.return_value = {"status": "success", "torrent_hash": self.NEW_HASH}
+        old = self._torrent_gone(store, media)
+        resp = self._redo(app_client, old.id, "show", 2)
+        assert resp.status_code == 202
+        new = resp.json()["job"]
+        assert new["redo_of"] == old.id
+        assert (new["season"], new["episode"]) == (2, 5)
+        assert store.get_job_by_id(old.id).status is JobStatus.DELETED
+        # Nothing was placed, so Jellyfin has nothing to forget.
+        jellyfin_client.scan.assert_not_awaited()
+
+    def test_needs_attention_with_placed_files_is_409(
+        self, app_client, store: JobStore, media, torrent_client
+    ):
+        old = self._torrent_gone(
+            store, media, placed_paths=[str(media / "Shows" / "Show (2019)" / "S02E05.mkv")]
+        )
+        resp = self._redo(app_client, old.id, "show", 2)
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "JOB_NOT_DONE"
+        assert store.get_job_by_id(old.id).status is JobStatus.NEEDS_ATTENTION
+        torrent_client.download.assert_not_awaited()
+
     def test_refused_plan_is_409(self, app_client, store: JobStore, media, torrent_client):
         # A DONE show without placed_paths cannot be deleted safely.
         job = store.create_job(

@@ -27,8 +27,10 @@ class JobStatus(str, Enum):
     Forward-only happy path: ``DOWNLOAD_SUBMITTED`` -> ... -> ``DONE``.
     ``FAILED`` is terminal-but-retryable (retry re-enters from the last good
     state). ``NEEDS_ATTENTION`` is where the health poll parks a job once its
-    automatic budget is spent; only a human retry moves it on. Wire values are
-    the enum names so a row reads as its status.
+    automatic budget is spent; a human retry, redo or dismiss moves it on.
+    ``DISMISSED`` is terminal: a human judged the job not worth pursuing; the
+    row and its error stay for the record. Wire values are the enum names so
+    a row reads as its status.
     """
 
     DOWNLOAD_SUBMITTED = "DOWNLOAD_SUBMITTED"
@@ -41,6 +43,7 @@ class JobStatus(str, Enum):
     FAILED = "FAILED"
     NEEDS_ATTENTION = "NEEDS_ATTENTION"
     DELETED = "DELETED"
+    DISMISSED = "DISMISSED"
 
 
 class PipelineJob(BaseModel):
@@ -77,6 +80,8 @@ class PipelineJob(BaseModel):
     downloaded again under a new job."""
     redo_of: str | None = None
     """The id of the job this one replaces, set by ``POST /jobs/{id}/redo``."""
+    dismissed_at: str | None = None
+    """When a human dismissed the job; set with ``DISMISSED``."""
     created_at: str
     updated_at: str
 
@@ -106,6 +111,7 @@ CREATE TABLE IF NOT EXISTS pipeline_job (
     deleted_at     TEXT,
     deleted_hash   TEXT,
     redo_of        TEXT,
+    dismissed_at   TEXT,
     created_at     TEXT    NOT NULL,
     updated_at     TEXT    NOT NULL
 );
@@ -130,6 +136,7 @@ _UPDATABLE_COLUMNS = frozenset(
         "seeding_removed_at",
         "placed_paths",
         "deleted_at",
+        "dismissed_at",
     }
 )
 
@@ -144,6 +151,7 @@ _ADDED_COLUMNS: dict[str, str] = {
     "episode": "INTEGER",
     "redo_of": "TEXT",
     "deleted_hash": "TEXT",
+    "dismissed_at": "TEXT",
 }
 
 # A DELETED job must not hold the unique torrent_hash: the same torrent may be
@@ -429,6 +437,7 @@ def _row_to_job(row: sqlite3.Row) -> PipelineJob:
         deleted_at=row["deleted_at"],
         deleted_hash=row["deleted_hash"],
         redo_of=row["redo_of"],
+        dismissed_at=row["dismissed_at"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

@@ -14,6 +14,7 @@ from medialab_orchestrator.schemas.errors import ErrorResponse
 from medialab_orchestrator.schemas.jobs import (
     BulkDeleteView,
     BulkDeletionPlanView,
+    BulkDismissView,
     BulkJobsRequest,
     DeletionPlanView,
     DiskUsageView,
@@ -21,6 +22,7 @@ from medialab_orchestrator.schemas.jobs import (
     DownloadResponse,
     JobDeleteResultView,
     JobDeletionPlanView,
+    JobDismissResultView,
     JobsResponse,
     JobView,
 )
@@ -30,6 +32,7 @@ from medialab_orchestrator.services.deletion import (
     plan_deletion,
     refused_plan,
 )
+from medialab_orchestrator.services.dismiss import dismiss_job
 from medialab_orchestrator.services.download import create_submitted_job, submit_job
 from medialab_orchestrator.services.progress import with_progress
 from medialab_orchestrator.services.redo import attach_redone_by, redo_job
@@ -37,6 +40,9 @@ from medialab_orchestrator.services.storage import disk_usage
 from medialab_orchestrator.store import JobNotFoundError, JobStatus, PipelineJob
 
 router = APIRouter(tags=["Gateway"])
+
+_CLOSED = frozenset({JobStatus.DELETED, JobStatus.DISMISSED})
+"""Statuses a human already closed; retry has nothing to re-enter."""
 
 _COMMON_ERRORS: dict[int | str, dict[str, Any]] = {
     403: {"model": ErrorResponse, "description": "Missing or invalid API key."},
@@ -211,6 +217,52 @@ async def bulk_delete(
     return BulkDeleteView(results=results)
 
 
+@router.post(
+    "/jobs/dismiss",
+    response_model=BulkDismissView,
+    status_code=fastapi_status.HTTP_200_OK,
+    summary="Dismiss each of these jobs as POST /jobs/{id}/dismiss would; one result per id.",
+    responses={**_COMMON_ERRORS, 422: {"model": ErrorResponse, "description": "Invalid body."}},
+)
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def bulk_dismiss(
+    request: Request, payload: BulkJobsRequest, ctx: AppContext = Depends(get_context)
+) -> BulkDismissView:
+    results: list[JobDismissResultView] = []
+    for job_id in payload.unique_ids():
+        try:
+            job = ctx.store.get_job_by_id(job_id)
+        except JobNotFoundError:
+            results.append(JobDismissResultView(job_id=job_id, job=None, error=UNKNOWN_JOB_REFUSAL))
+            continue
+        try:
+            dismissed = dismiss_job(job, store=ctx.store, watchlist=ctx.watchlist)
+        except AppException as exc:
+            results.append(
+                JobDismissResultView(job_id=job_id, job=JobView.from_job(job), error=exc.detail)
+            )
+        else:
+            results.append(JobDismissResultView(job_id=job_id, job=JobView.from_job(dismissed)))
+    return BulkDismissView(results=results)
+
+
+@router.post(
+    "/jobs/{job_id}/dismiss",
+    response_model=JobView,
+    status_code=fastapi_status.HTTP_200_OK,
+    summary="Close a flagged job without touching its files; a human judged it not worth pursuing.",
+    responses={
+        **_COMMON_ERRORS,
+        404: {"model": ErrorResponse, "description": "No such job."},
+        409: {"model": ErrorResponse, "description": "Job is not FAILED or NEEDS_ATTENTION."},
+    },
+)
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def dismiss(request: Request, job_id: str, ctx: AppContext = Depends(get_context)) -> JobView:
+    job = dismiss_job(_job_or_404(ctx, job_id), store=ctx.store, watchlist=ctx.watchlist)
+    return JobView.from_job(job)
+
+
 @router.get(
     "/jobs/{job_id}/deletion-plan",
     response_model=DeletionPlanView,
@@ -291,7 +343,11 @@ async def redo_download(
     response_model=JobView,
     status_code=fastapi_status.HTTP_200_OK,
     summary="Re-enter the worker from the last good state.",
-    responses={**_COMMON_ERRORS, 404: {"model": ErrorResponse, "description": "No such job."}},
+    responses={
+        **_COMMON_ERRORS,
+        404: {"model": ErrorResponse, "description": "No such job."},
+        409: {"model": ErrorResponse, "description": "Job is closed, or has no hash yet."},
+    },
 )
 @limiter.limit(RATE_LIMIT_DEFAULT)
 async def retry_job(
@@ -305,6 +361,12 @@ async def retry_job(
             code=ErrorCode.JOB_NOT_FOUND,
             detail=f"No job {job_id}.",
         ) from exc
+    if existing.status in _CLOSED:
+        raise AppException(
+            status_code=fastapi_status.HTTP_409_CONFLICT,
+            code=ErrorCode.JOB_NOT_RETRYABLE,
+            detail=f"Job {job_id} is {existing.status.value}; a closed job cannot be retried.",
+        )
     if existing.torrent_hash is None:
         # The pipeline needs the info-hash (transfer_info, stop-seeding). A job
         # whose hash never got stamped cannot be advanced; the completion webhook

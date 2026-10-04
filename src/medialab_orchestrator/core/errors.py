@@ -22,8 +22,13 @@ class ErrorCode(str, Enum):
     EPISODE_UNPARSEABLE = "EPISODE_UNPARSEABLE"
     SOURCE_NOT_FOUND = "SOURCE_NOT_FOUND"
     RENAME_INCOMPLETE = "RENAME_INCOMPLETE"
-    # POST /jobs/{id}/redo: only a DONE job can be redone.
+    # POST /jobs/{id}/redo: only a DONE job, or a flagged job that placed
+    # nothing, can be redone.
     JOB_NOT_DONE = "JOB_NOT_DONE"
+    # POST /jobs/{id}/dismiss: only a FAILED or NEEDS_ATTENTION job.
+    JOB_NOT_DISMISSABLE = "JOB_NOT_DISMISSABLE"
+    # POST /jobs/{id}/retry: a DISMISSED or DELETED job is closed.
+    JOB_NOT_RETRYABLE = "JOB_NOT_RETRYABLE"
     # POST /jobs/{id}/redo: the old job's deletion failed; the replacement
     # row exists and the old job is untouched, so the redo can be retried.
     REDO_DELETION_FAILED = "REDO_DELETION_FAILED"

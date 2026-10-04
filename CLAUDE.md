@@ -51,11 +51,15 @@ DONE                 removes the job's (media_type, tmdb_id) from the watchlist 
                      saved (a followed show stays); orphans skip it
 FAILED               any step error; last_error stored; POST /jobs/{id}/retry re-enters
                      from the last good state; the health poll retries it AUTO_RETRY_MAX times
-NEEDS_ATTENTION      the poll's budget for a job is spent; only a human retry moves it
+NEEDS_ATTENTION      the poll's budget for a job is spent; a human retry, redo or dismiss moves it
 DELETED              undone via DELETE /jobs/{id} (marks the job's follow_submission ignored), or
-                     replaced via POST /jobs/{id}/redo (repoints the submission; only from
-                     DONE: replacement row created first with redo_of, then the old job's deletion
-                     plan runs, then the new download is submitted); terminal, kept for the record
+                     replaced via POST /jobs/{id}/redo (repoints the submission; from DONE, or from
+                     NEEDS_ATTENTION with nothing placed: replacement row created first with
+                     redo_of, then the old job's deletion plan runs, then the new download is
+                     submitted); terminal, kept for the record
+DISMISSED            POST /jobs/{id}/dismiss from FAILED or NEEDS_ATTENTION: a human judged the job
+                     not worth pursuing; last_error and files kept, follow_submission ignored;
+                     terminal, out of the poll and the needs_attention count
 ```
 
 Columns: `id` (surrogate uuid PK), `torrent_hash` (nullable, unique when
@@ -67,7 +71,10 @@ scope; both null is the whole title), `resolved_title`, `resolved_year`,
 `release_name` is not it), `dest_path`, `status`, `last_error`, `attempts`,
 `remediations`, `seeding_removed_at`, `placed_paths`, `deleted_at`, `redo_of`
 (nullable; the id of the job this one replaces, its inverse `redone_by` is
-computed on read from one query per listing), `created_at`, `updated_at`. A
+computed on read from one query per listing), `dismissed_at`, `created_at`,
+`updated_at`. `attention_cause` on the view is derived from `last_error` by
+`services/attention.py`, which owns the message shapes the poll and the worker
+write. A
 job is born at download submit, never at search. The webhook
 resolves by hash, then updates by id; an unmatched hash orphan-inserts a job so
 the event is still tracked. A `DELETED` job releases its hash into
@@ -137,8 +144,9 @@ src/medialab_orchestrator/
 │                and follow_season: the per-season pack mode of a follow)
 ├── services/    worker (asyncio pipeline), health_poll (periodic remediation), deletion (undo a
 │                download: plan + execute), download (the submit path shared by
-│                POST /download, redo and the follow poll), redo (replace a DONE job;
-│                redone_by on read), metadata (TMDB resolve),
+│                POST /download, redo and the follow poll), redo (replace a DONE or
+│                flagged-and-unplaced job; redone_by on read), dismiss (close a flagged job),
+│                attention (error message shapes + attention_cause), metadata (TMDB resolve),
 │                rename (pure plan_rename to Jellyfin layout + apply_plan mover),
 │                discover (watchlist kind + best-effort library annotation),
 │                shows (episodes joined with library presence and queued jobs),
