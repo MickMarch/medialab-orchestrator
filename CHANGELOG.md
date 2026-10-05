@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- RENAME: a show video whose file name carries no season and episode takes
+  them from the nearest parent folder under the download root that does, then
+  from the release name. Only one video may claim a folder-derived code; a
+  second claimant, or a code a properly named file already owns, stays an
+  extra. The placement is logged at INFO with the name it came from.
+
 ## [1.5.2] - 2026-10-04
 
 ### Fixed
