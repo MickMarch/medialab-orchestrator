@@ -14,11 +14,25 @@ from pydantic import ValidationError
 
 from medialab_orchestrator.core.deps import AppContext, get_context
 from medialab_orchestrator.core.errors import AppException, ErrorCode
-from medialab_orchestrator.core.limiter import RATE_LIMIT_SEARCH, limiter
+from medialab_orchestrator.core.limiter import RATE_LIMIT_DEFAULT, RATE_LIMIT_SEARCH, limiter
 from medialab_orchestrator.schemas.errors import ErrorResponse
 from medialab_orchestrator.services.discover import annotate_search
 
 router = APIRouter(tags=["Search"])
+
+
+def _scope_or_422(
+    media_type: MediaType, season: int | None, episode: int | None
+) -> TorrentSearchScope:
+    try:
+        return TorrentSearchScope(media_type=media_type, season=season, episode=episode)
+    except ValidationError as error:
+        raise AppException(
+            status_code=fastapi_status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code=ErrorCode.INVALID_INPUT,
+            detail="Invalid season/episode combination for the requested media type.",
+        ) from error
+
 
 _SEARCH_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     403: {"model": ErrorResponse, "description": "Missing or invalid API key."},
@@ -91,15 +105,30 @@ async def search_torrents(
     alt_query: str | None = None,
     ctx: AppContext = Depends(get_context),
 ) -> Any:
-    try:
-        scope = TorrentSearchScope(media_type=media_type, season=season, episode=episode)
-    except ValidationError as error:
-        raise AppException(
-            status_code=fastapi_status.HTTP_422_UNPROCESSABLE_CONTENT,
-            code=ErrorCode.INVALID_INPUT,
-            detail="Invalid season/episode combination for the requested media type.",
-        ) from error
+    scope = _scope_or_422(media_type, season, episode)
     return await ctx.torrent.search_torrents(query, scope, alt_query=alt_query)
+
+
+@router.get(
+    "/search/torrents/progress",
+    status_code=fastapi_status.HTTP_200_OK,
+    summary="Where a torrent search stands (proxied to torrent-downloader).",
+    responses=_SEARCH_ERROR_RESPONSES,
+)
+@limiter.limit(RATE_LIMIT_DEFAULT)
+async def search_progress(
+    request: Request,
+    query: str,
+    media_type: MediaType,
+    season: int | None = None,
+    episode: int | None = None,
+    alt_query: str | None = None,
+    ctx: AppContext = Depends(get_context),
+) -> Any:
+    """Polled once a second by the web while a search runs; the default
+    rate limit, not the search one."""
+    scope = _scope_or_422(media_type, season, episode)
+    return await ctx.torrent.search_progress(query, scope, alt_query=alt_query)
 
 
 @router.delete(

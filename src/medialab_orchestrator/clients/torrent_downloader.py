@@ -30,6 +30,18 @@ _NOT_FOUND = 404
 _VPN_BOUND_KEY = "vpn_interface_bound"
 
 
+def _search_params(query: str, scope: TorrentSearchScope, alt_query: str | None) -> dict[str, Any]:
+    """The query parameters a torrent search and its progress read share."""
+    params: dict[str, Any] = {"query": query, "media_type": scope.media_type.value}
+    if alt_query:
+        params["alt_query"] = alt_query
+    if scope.season is not None:
+        params["season"] = scope.season
+    if scope.episode is not None:
+        params["episode"] = scope.episode
+    return params
+
+
 class TorrentDownloaderClient(DownstreamClient):
     """Wraps the torrent-downloader REST surface the orchestrator depends on."""
 
@@ -93,14 +105,19 @@ class TorrentDownloaderClient(DownstreamClient):
     async def search_torrents(
         self, query: str, scope: TorrentSearchScope, *, alt_query: str | None = None
     ) -> Any:
-        params: dict[str, Any] = {"query": query, "media_type": scope.media_type.value}
-        if alt_query:
-            params["alt_query"] = alt_query
-        if scope.season is not None:
-            params["season"] = scope.season
-        if scope.episode is not None:
-            params["episode"] = scope.episode
-        return await self.get(f"{API_PREFIX}/search/torrents", params=params)
+        return await self.get(
+            f"{API_PREFIX}/search/torrents", params=_search_params(query, scope, alt_query)
+        )
+
+    async def search_progress(
+        self, query: str, scope: TorrentSearchScope, *, alt_query: str | None = None
+    ) -> Any:
+        """Where the search ``search_torrents`` would run with the same
+        parameters stands; cheap to poll, the downloader never calls qBittorrent."""
+        return await self.get(
+            f"{API_PREFIX}/search/torrents/progress",
+            params=_search_params(query, scope, alt_query),
+        )
 
     async def pick_torrent(
         self,

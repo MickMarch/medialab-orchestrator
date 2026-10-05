@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `GET /search/torrents/progress`: proxy to torrent-downloader's progress
+  read for a search in flight, same parameters as `/search/torrents`.
+
+### Changed
+
+- medialab-contracts pinned to the tag that carries `TorrentSearchProgress`.
+
 ## [1.6.0] - 2026-10-05
 
 ### Added
