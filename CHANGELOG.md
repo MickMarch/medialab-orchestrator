@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-10-04
+
 ### Fixed
 
 - `POST /download` and `POST /jobs/{id}/redo` pass torrent-downloader's
