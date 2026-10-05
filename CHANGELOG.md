@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-05
+
 ### Added
 
 - `GET /search/torrents/progress`: proxy to torrent-downloader's progress
