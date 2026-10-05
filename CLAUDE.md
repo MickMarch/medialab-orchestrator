@@ -46,7 +46,9 @@ RESOLVE_META         GET /search/tmdb/{type}/{tmdb_id} -> canonical title + year
 RENAME               from <media>/_incoming/<subdir>/<root name> (legacy: the library root)
                      per video file: show -> <root>/Title (Year)/Season NN/Title SNNEMM.ext
                      movie -> <root>/Title (Year)/Title (Year).ext (+ extras/); subs follow;
-                     a show video with no SxxEyy -> <root>/Title (Year)/extras/ (logged, in
+                     a show video with no SxxEyy in its name takes it from the nearest parent
+                     folder under the download root, then the release name (one video per
+                     code, logged); still none -> <root>/Title (Year)/extras/ (logged, in
                      placed_paths); a pack where no video parses fails EPISODE_UNPARSEABLE
 SCAN                 medialab-jellyfin POST /library/scan
 DONE                 removes the job's (media_type, tmdb_id) from the watchlist when it is only

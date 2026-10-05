@@ -2,10 +2,13 @@
 
 Movies:  ``Movies/Title (Year)/Title (Year).ext``, other videos in ``extras/``.
 Shows:   ``Shows/Title (Year)/Season NN/Title SNNEMM.ext``, specials in
-         ``Season 00``, multi-episode files as ``SNNEMM-EMM``; a video with
-         no episode number (a bundled movie, a featurette) goes to
-         ``extras/`` under the series folder and is reported on the plan.
-         A pack where no video parses at all fails the job.
+         ``Season 00``, multi-episode files as ``SNNEMM-EMM``. A video whose
+         own name carries no episode takes it from the nearest parent folder
+         under the download root that does, then from the release name;
+         one video per code. A video with no episode anywhere (a bundled
+         movie, a featurette) goes to ``extras/`` under the series folder
+         and is reported on the plan. A pack where no video parses at all
+         fails the job.
 
 Title and year come from TMDB (resolved upstream), never from release names.
 PTN parses each file name for season and episode only. Subtitle files follow
@@ -31,6 +34,7 @@ from fastapi import status as fastapi_status
 from medialab_contracts import STAGING_SUBDIR, MediaType
 
 from medialab_orchestrator.core.errors import AppException, ErrorCode
+from medialab_orchestrator.core.logger import app_logger
 
 VIDEO_EXTENSIONS = frozenset({".mkv", ".mp4", ".avi", ".m4v", ".ts", ".webm", ".mov"})
 SUBTITLE_EXTENSIONS = frozenset({".srt", ".ass", ".sub", ".idx", ".vtt"})
@@ -134,6 +138,36 @@ def parse_episode(file_name: str) -> tuple[int, list[int]]:
     return season, sorted(episodes)
 
 
+EpisodeCode = tuple[int, tuple[int, ...]]
+"""``(season, episodes)`` as a hashable key: the identity of one placed file."""
+
+
+def _fallback_names(video: Path, source: Path, release_name: str) -> list[str]:
+    """Where an episode code may come from when the file name has none: each
+    parent folder from the file up to the download root, then the release
+    name. Nothing above the root is a release name."""
+    names: list[str] = []
+    for parent in video.parents:
+        if parent == source.parent or parent == parent.parent:
+            break
+        names.append(parent.name)
+    names.append(release_name)
+    return names
+
+
+def _episode_from_fallback(
+    video: Path, source: Path, release_name: str
+) -> tuple[EpisodeCode, str] | None:
+    """The first fallback name that parses, with the code it yields."""
+    for name in _fallback_names(video, source, release_name):
+        try:
+            season, episodes = parse_episode(name)
+        except EpisodeUnparseableError:
+            continue
+        return (season, tuple(episodes)), name
+    return None
+
+
 def episode_stem(title: str, season: int, episodes: Sequence[int]) -> str:
     clean = sanitize_title(title)
     if len(episodes) == 1:
@@ -171,8 +205,50 @@ def _companions(video: MediaFile, files: Sequence[MediaFile]) -> list[tuple[Medi
     return found
 
 
+def _resolve_episodes(
+    videos: Sequence[MediaFile], source: Path, release_name: str
+) -> tuple[dict[Path, EpisodeCode], list[str]]:
+    """Each video's episode code: from its own name, else from a parent folder
+    or the release name when no other video claims that code. Videos left
+    out are extras; the reasons say why."""
+    codes: dict[Path, EpisodeCode] = {}
+    reasons: list[str] = []
+    fallbacks: dict[Path, tuple[EpisodeCode, str]] = {}
+    for video in videos:
+        try:
+            season, episodes = parse_episode(video.path.name)
+        except EpisodeUnparseableError as exc:
+            found = _episode_from_fallback(video.path, source, release_name)
+            if found is None:
+                reasons.append(str(exc))
+            else:
+                fallbacks[video.path] = found
+            continue
+        codes[video.path] = (season, tuple(episodes))
+    claimed = set(codes.values())
+    wanted = [code for code, _ in fallbacks.values()]
+    for path, (code, origin) in fallbacks.items():
+        if code in claimed or wanted.count(code) > 1:
+            reasons.append(f"Folder-derived episode already taken for {path.name!r}")
+            continue
+        codes[path] = code
+        app_logger.info(
+            "Episode %s for %r taken from %r (file name carries none)",
+            _EPISODE_TEMPLATE.format(season=code[0], episode=code[1][0]),
+            path.name,
+            origin,
+        )
+    return codes, reasons
+
+
 def _plan_show(
-    *, media_root: Path, title: str, year: int, files: Sequence[MediaFile]
+    *,
+    media_root: Path,
+    title: str,
+    year: int,
+    files: Sequence[MediaFile],
+    source: Path,
+    release_name: str,
 ) -> tuple[Path, list[tuple[Path, Path]], list[Path]]:
     """Episodes into season folders; videos with no episode number into
     ``extras/``. Raises only when nothing parses: that is a badly named pack,
@@ -180,15 +256,15 @@ def _plan_show(
     series_dir = media_root / title_dir(title, year)
     moves: list[tuple[Path, Path]] = []
     extras: list[Path] = []
-    reasons: list[str] = []
-    for video in filter(_is_video, files):
-        try:
-            season, episodes = parse_episode(video.path.name)
-        except EpisodeUnparseableError as exc:
+    videos = list(filter(_is_video, files))
+    codes, reasons = _resolve_episodes(videos, source, release_name)
+    for video in videos:
+        code = codes.get(video.path)
+        if code is None:
             extras.append(video.path)
-            reasons.append(str(exc))
             moves.append((video.path, series_dir / EXTRAS_DIR / video.path.name))
             continue
+        season, episodes = code
         season_dir = series_dir / _SEASON_DIR_TEMPLATE.format(season=season)
         stem = episode_stem(title, season, episodes)
         moves.append((video.path, season_dir / f"{stem}{video.path.suffix.lower()}"))
@@ -241,7 +317,12 @@ def plan_rename(
         scan_dir, moves = _plan_movie(media_root=media_root, title=title, year=year, files=files)
     else:
         scan_dir, moves, extras = _plan_show(
-            media_root=media_root, title=title, year=year, files=files
+            media_root=media_root,
+            title=title,
+            year=year,
+            files=files,
+            source=source,
+            release_name=release_name,
         )
     return RenamePlan(source=source, scan_dir=scan_dir, moves=tuple(moves), extras=tuple(extras))
 

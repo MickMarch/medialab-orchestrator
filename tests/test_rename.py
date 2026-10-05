@@ -255,6 +255,150 @@ class TestPlanShow:
         )
 
 
+class TestFolderFallback:
+    """A video whose name carries no episode takes it from the nearest parent
+    folder that does, then from the release name. One video per code."""
+
+    def test_episode_from_the_download_folder_name(self):
+        source = SHOWS / "Rick.and.Morty.S09E05.Jer.Bud.1080p.WEB.H264-FLUX"
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name=source.name,
+            source=source,
+            title="Rick and Morty",
+            year=2013,
+            files=_files(source, "info/info.mkv"),
+        )
+        series = SHOWS / "Rick and Morty (2013)"
+        assert _moves(plan) == {
+            source / "info/info.mkv": series / "Season 09" / "Rick and Morty S09E05.mkv",
+        }
+        assert plan.extras == ()
+
+    def test_nearest_parent_folder_wins(self):
+        # The episode folder, not the pack folder, names the file inside it.
+        source = SHOWS / "Show.S01.1080p-GRP"
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name=source.name,
+            source=source,
+            title="Show",
+            year=2019,
+            files=_files(source, "Show.S01E01-GRP/info.mkv", "Show.S01E02-GRP/info.mkv"),
+        )
+        series = SHOWS / "Show (2019)"
+        assert _moves(plan) == {
+            source / "Show.S01E01-GRP/info.mkv": series / "Season 01" / "Show S01E01.mkv",
+            source / "Show.S01E02-GRP/info.mkv": series / "Season 01" / "Show S01E02.mkv",
+        }
+
+    def test_release_name_is_the_last_resort(self):
+        # A bare file named by the torrent, not by its folder: the release
+        # name the user picked carries the code.
+        single = SHOWS / "info[EZTVx.to].mkv"
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name="Rick and Morty S09E05 1080p WEB H264-FLUX",
+            source=single,
+            title="Rick and Morty",
+            year=2013,
+            files=[MediaFile(path=single, size=GB)],
+        )
+        series = SHOWS / "Rick and Morty (2013)"
+        assert _moves(plan) == {single: series / "Season 09" / "Rick and Morty S09E05.mkv"}
+
+    def test_folder_above_the_download_root_is_never_consulted(self):
+        # The library path itself ("Shows", "media") is not a release name.
+        source = SHOWS / "info"
+        with pytest.raises(AppException) as exc:
+            plan_rename(
+                media_type=MediaType.SHOW,
+                media_root=SHOWS,
+                release_name="info",
+                source=source,
+                title="Show",
+                year=2019,
+                files=_files(source, "info.mkv"),
+            )
+        assert exc.value.code is ErrorCode.EPISODE_UNPARSEABLE
+
+    def test_two_videos_claiming_one_folder_code_both_stay_extras(self):
+        # A pack folder names one episode; two obfuscated videos inside it
+        # cannot both be that episode, so neither is placed as it.
+        source = SHOWS / "Show.S01E01.1080p-GRP"
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name=source.name,
+            source=source,
+            title="Show",
+            year=2019,
+            files=_files(source, "Show.S01E02.mkv", "a.mkv", "b.mkv"),
+        )
+        series = SHOWS / "Show (2019)"
+        assert _moves(plan) == {
+            source / "Show.S01E02.mkv": series / "Season 01" / "Show S01E02.mkv",
+            source / "a.mkv": series / EXTRAS_DIR / "a.mkv",
+            source / "b.mkv": series / EXTRAS_DIR / "b.mkv",
+        }
+        assert set(plan.extras) == {source / "a.mkv", source / "b.mkv"}
+
+    def test_folder_code_already_taken_by_a_named_video_stays_extra(self):
+        # The properly named file owns S01E01; the sample in the same folder
+        # must not become a second S01E01.
+        source = SHOWS / "Show.S01E01.1080p-GRP"
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name=source.name,
+            source=source,
+            title="Show",
+            year=2019,
+            files=_files(source, "Show.S01E01.1080p-GRP.mkv", "Sample/sample.mkv"),
+        )
+        series = SHOWS / "Show (2019)"
+        assert _moves(plan) == {
+            source / "Show.S01E01.1080p-GRP.mkv": series / "Season 01" / "Show S01E01.mkv",
+            source / "Sample/sample.mkv": series / EXTRAS_DIR / "sample.mkv",
+        }
+
+    def test_subtitles_follow_a_folder_named_video(self):
+        source = SHOWS / "Show.S01E03-GRP"
+        plan = plan_rename(
+            media_type=MediaType.SHOW,
+            media_root=SHOWS,
+            release_name=source.name,
+            source=source,
+            title="Show",
+            year=2019,
+            files=_files(source, "info.mkv", "info.en.srt"),
+        )
+        season = SHOWS / "Show (2019)" / "Season 01"
+        assert _moves(plan) == {
+            source / "info.mkv": season / "Show S01E03.mkv",
+            source / "info.en.srt": season / "Show S01E03.en.srt",
+        }
+
+    def test_fallback_is_logged(self, caplog):
+        source = SHOWS / "Show.S01E03-GRP"
+        with caplog.at_level("INFO", logger=rename_module.app_logger.name):
+            plan_rename(
+                media_type=MediaType.SHOW,
+                media_root=SHOWS,
+                release_name=source.name,
+                source=source,
+                title="Show",
+                year=2019,
+                files=_files(source, "info.mkv"),
+            )
+        assert any(
+            "info.mkv" in r.getMessage() and "S01E03" in r.getMessage() for r in caplog.records
+        )
+
+
 class TestPlanMovie:
     def test_largest_video_is_the_main_file_others_are_extras(self):
         source = MOVIES / "Movie.2021.1080p-GRP"
