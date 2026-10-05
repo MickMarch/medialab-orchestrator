@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-05
+
 ### Added
 
 - RENAME: a show video whose file name carries no season and episode takes
