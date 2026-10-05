@@ -41,6 +41,7 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 | `GET` | `/search/tmdb/{movie|show}/{tmdb_id}/videos?season=` | Proxy: YouTube trailers and teasers, official first; `season` narrows a show to one season. |\|show}/{tmdb_id}` | Proxy. Show detail carries the season list. |
 | `DELETE` | `/search/cache` | Proxy to torrent-downloader `DELETE /cache`: drops cached search and TMDB result sets. |
 | `GET` | `/search/torrents?query=&media_type=[&season=&episode=]` | Proxy; scope validated via `TorrentSearchScope`. |
+| `GET` | `/search/torrents/progress?query=&media_type=[&season=&episode=&alt_query=]` | Proxy; where the search with the same parameters stands (`TorrentSearchProgress`). Default rate limit, polled by the web. |
 | `GET` | `/discover/{movie\|show}[?genre=&page=]` | Proxy to torrent-downloader: trending titles, or popular in `genre`. Sets `on_watchlist` and `watchlist_kind` from the watchlist and `in_library` from medialab-jellyfin (best effort, false on failure). `503` `TMDB_UNAVAILABLE` when TMDB is down. No job created. |
 | `GET` | `/discover/{movie\|show}/genres` | Proxy: TMDB genre ids and names, usable as `genre`. |
 | `GET` | `/shows/{tmdb_id}` | A show's header, seasons and episodes (`ShowBrowseResponse`). Each episode carries `aired`, `in_library` (best effort, false on failure) and `queued_job_id`, the newest non-terminal job whose `season`/`episode` scope covers it. The header carries `on_watchlist` and `watchlist_kind`. `503` `TMDB_UNAVAILABLE` when TMDB is down. No job created. |

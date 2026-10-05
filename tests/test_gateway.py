@@ -157,6 +157,38 @@ class TestTransfersAndStorage:
         assert store.list_jobs() == []
 
 
+class TestSearchProgressProxy:
+    def test_forwards_scope_and_alt_query_and_returns_the_body(
+        self, app_client, torrent_client: AsyncMock
+    ):
+        body = {
+            "state": "running",
+            "patterns_total": 3,
+            "patterns_done": 1,
+            "results_so_far": 4,
+            "elapsed_seconds": 2.0,
+            "timeout_seconds": 15,
+        }
+        torrent_client.search_progress.return_value = body
+        resp = app_client.get(
+            "/api/v1/search/torrents/progress",
+            params={"query": "the wire", "media_type": "show", "season": 2, "alt_query": "wire"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == body
+        scope = torrent_client.search_progress.await_args.args[1]
+        assert scope.media_type is MediaType.SHOW and scope.season == 2
+        assert torrent_client.search_progress.await_args.kwargs["alt_query"] == "wire"
+
+    def test_invalid_scope_is_422(self, app_client, torrent_client: AsyncMock):
+        resp = app_client.get(
+            "/api/v1/search/torrents/progress",
+            params={"query": "dune", "media_type": "movie", "season": 1},
+        )
+        assert resp.status_code == 422
+        torrent_client.search_progress.assert_not_awaited()
+
+
 class TestSearchTorrentsProxy:
     def test_requires_media_type(self, app_client, torrent_client: AsyncMock):
         torrent_client.search_torrents.return_value = {"data": {}}

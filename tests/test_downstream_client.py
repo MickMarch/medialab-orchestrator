@@ -140,3 +140,35 @@ class TestDownloadRelay:
             )
         assert excinfo.value.status_code == 502
         assert excinfo.value.code is ErrorCode.DOWNSTREAM_UNAVAILABLE
+
+
+class TestSearchProgressParams:
+    @pytest.mark.asyncio
+    async def test_sends_the_search_parameters(self):
+        import httpx
+        from medialab_contracts import TorrentSearchScope
+
+        from medialab_orchestrator.clients.torrent_downloader import TorrentDownloaderClient
+
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(200, json={"state": "idle"})
+
+        client = TorrentDownloaderClient()
+        client._base_url = "http://downloader.test"
+        client._transport = httpx.MockTransport(handler)
+        scope = TorrentSearchScope(media_type=MediaType.SHOW, season=2, episode=5)
+
+        await client.search_progress("the wire", scope, alt_query="wire")
+
+        request = seen[0]
+        assert request.url.path.endswith("/search/torrents/progress")
+        assert dict(request.url.params) == {
+            "query": "the wire",
+            "media_type": "show",
+            "alt_query": "wire",
+            "season": "2",
+            "episode": "5",
+        }
