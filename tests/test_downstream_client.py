@@ -1,6 +1,7 @@
 """DownstreamClient error relay: chosen downstream codes keep their status and code."""
 
 import pytest
+from medialab_contracts import MediaType
 
 from medialab_orchestrator.clients.base import relayed_error
 from medialab_orchestrator.core.errors import ErrorCode
@@ -88,3 +89,54 @@ class TestHealthProbe:
 
         client = self._client_with(lambda request: httpx.Response(200, json={"status": "online"}))
         assert await client.vpn_bound() is False
+
+
+class TestDownloadRelay:
+    """``download()`` keeps the downloader's retryable 503 so the UI can say
+    "source unreachable, try again"; every other failure stays a 502."""
+
+    @staticmethod
+    def _client_with(handler):
+        import httpx
+
+        from medialab_orchestrator.clients.torrent_downloader import TorrentDownloaderClient
+
+        client = TorrentDownloaderClient()
+        client._base_url = "http://downloader.test"
+        client._transport = httpx.MockTransport(handler)
+        return client
+
+    @pytest.mark.asyncio
+    async def test_source_unreachable_keeps_status_and_code(self):
+        import httpx
+
+        from medialab_orchestrator.core.errors import AppException
+
+        body = {
+            "status": "error",
+            "code": "SOURCE_UNREACHABLE",
+            "detail": "The source page could not be reached; the request can be retried.",
+        }
+        client = self._client_with(lambda request: httpx.Response(503, json=body))
+        with pytest.raises(AppException) as excinfo:
+            await client.download(
+                source_url="https://x.test/page.html", media_type=MediaType.MOVIE, tmdb_id=1
+            )
+        assert excinfo.value.status_code == 503
+        assert excinfo.value.code is ErrorCode.SOURCE_UNREACHABLE
+        assert excinfo.value.detail == body["detail"]
+
+    @pytest.mark.asyncio
+    async def test_no_magnet_422_stays_downstream_unavailable(self):
+        import httpx
+
+        from medialab_orchestrator.core.errors import AppException
+
+        body = {"status": "error", "code": "INVALID_INPUT", "detail": "no magnet"}
+        client = self._client_with(lambda request: httpx.Response(422, json=body))
+        with pytest.raises(AppException) as excinfo:
+            await client.download(
+                source_url="https://x.test/page.html", media_type=MediaType.MOVIE, tmdb_id=1
+            )
+        assert excinfo.value.status_code == 502
+        assert excinfo.value.code is ErrorCode.DOWNSTREAM_UNAVAILABLE

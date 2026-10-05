@@ -21,6 +21,9 @@ from medialab_orchestrator.core.errors import ErrorCode
 # TMDB outages and out-of-range pages keep their meaning for the UI instead of
 # collapsing into DOWNSTREAM_UNAVAILABLE.
 _DISCOVER_RELAYED = frozenset({ErrorCode.TMDB_UNAVAILABLE, ErrorCode.INVALID_INPUT})
+# A details page the downloader could not fetch is retryable; the UI says so
+# instead of showing a generic gateway failure.
+_DOWNLOAD_RELAYED = frozenset({ErrorCode.SOURCE_UNREACHABLE})
 _NOT_FOUND = 404
 # torrent-downloader's /health reports whether qBittorrent is bound to an
 # accepted VPN interface; the gateway surfaces it, the downloader enforces it.
@@ -136,6 +139,7 @@ class TorrentDownloaderClient(DownstreamClient):
                 "media_type": media_type.value,
                 "tmdb_id": tmdb_id,
             },
+            relay=_DOWNLOAD_RELAYED,
         )
 
     async def settings(self) -> Any:
