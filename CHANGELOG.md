@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-07
+
 ### Added
 
 - Credential health: `GET /api/v1/health` carries a `credentials` map merging
