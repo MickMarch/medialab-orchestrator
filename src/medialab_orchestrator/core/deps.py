@@ -10,11 +10,13 @@ in-memory store, then override the dependency.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from fastapi import Request
 
 from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClient
 from medialab_orchestrator.core.config import config
+from medialab_orchestrator.services.credentials import CredentialLedger, CredentialMonitor
 from medialab_orchestrator.services.follow import FollowPoller
 from medialab_orchestrator.services.health_poll import HealthPoller
 from medialab_orchestrator.services.worker import PipelineWorker
@@ -30,6 +32,7 @@ class AppContext:
     worker: PipelineWorker
     follow_poller: FollowPoller
     poller: HealthPoller | None = None
+    credentials: CredentialMonitor | None = None
 
 
 def build_context() -> AppContext:
@@ -46,6 +49,11 @@ def build_context() -> AppContext:
     follow_poller = FollowPoller(
         store=store, watchlist=watchlist, torrent_client=torrent, jellyfin_client=jellyfin
     )
+    credentials = CredentialMonitor(
+        torrent_client=torrent,
+        jellyfin_client=jellyfin,
+        ledger=CredentialLedger(Path(config.credentials_path)),
+    )
     return AppContext(
         store=store,
         watchlist=watchlist,
@@ -54,6 +62,7 @@ def build_context() -> AppContext:
         worker=worker,
         follow_poller=follow_poller,
         poller=poller,
+        credentials=credentials,
     )
 
 

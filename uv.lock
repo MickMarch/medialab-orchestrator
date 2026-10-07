@@ -350,8 +350,8 @@ wheels = [
 
 [[package]]
 name = "medialab-contracts"
-version = "1.2.0"
-source = { git = "https://github.com/MickMarch/medialab-contracts?rev=v1.2.0#416dcf424fd10b6cd11e81794a23dca9ff927534" }
+version = "1.3.0"
+source = { git = "https://github.com/MickMarch/medialab-contracts?rev=v1.3.0#d69dafc42f3aa3a37e5241cee503bf1ad8da4e64" }
 dependencies = [
     { name = "pydantic" },
 ]
@@ -382,7 +382,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.136.1" },
     { name = "httpx", specifier = ">=0.28.0" },
-    { name = "medialab-contracts", git = "https://github.com/MickMarch/medialab-contracts?rev=v1.2.0" },
+    { name = "medialab-contracts", git = "https://github.com/MickMarch/medialab-contracts?rev=v1.3.0" },
     { name = "parse-torrent-title", specifier = ">=2.8.2" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "slowapi", specifier = ">=0.1.9" },
