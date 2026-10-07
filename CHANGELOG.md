@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Credential health: `GET /api/v1/health` carries a `credentials` map merging
+  each worker's per-key states with the bot's login report; an unreachable
+  worker's keys read `unreachable`. `POST /api/v1/credentials/{name}` lets the
+  bot report its Discord login result. On the health poll cadence the
+  orchestrator posts one Discord notice per credential entering or leaving
+  `invalid`, remembered in `CREDENTIALS_PATH` so a restart does not
+  re-announce (MickMarch/medialab#136).
+
+### Changed
+
+- medialab-contracts pin moved to the release carrying the credential models.
+
 ## [1.7.0] - 2026-10-05
 
 ### Added

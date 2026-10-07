@@ -35,7 +35,8 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/health` | Public. Reachability of both downstream services, `needs_attention` (jobs waiting on a human) and `vpn_interface_bound` (torrent-downloader's VPN assertion; `false` whenever the downloader is unreachable). Surfaced for clients to warn; enforcement stays in torrent-downloader. |
+| `GET` | `/health` | Public. Reachability of both downstream services, `needs_attention` (jobs waiting on a human), `vpn_interface_bound` (torrent-downloader's VPN assertion; `false` whenever the downloader is unreachable) and `credentials`: per-key health (`ok`, `invalid`, `unreachable`, `unknown`) for the TMDB, qBittorrent and Jellyfin keys as the workers report them, plus the bot's Discord login result. Only `invalid` needs a human. |
+| `POST` | `/credentials/{name}` | The bot reports its Discord login result as a `CredentialState`; worker-owned names are refused with 422. |
 | `GET` | `/search/tmdb?query=` | Proxy to torrent-downloader; each result gains `on_watchlist`, `watchlist_kind` and best-effort `in_library` (TMDB `tv` matches `show`). No job created. |
 | `GET` | `/search/tmdb/{movie|show}/{tmdb_id}` | Proxy. Show detail carries the season list. |
 | `GET` | `/search/tmdb/{movie|show}/{tmdb_id}/videos?season=` | Proxy: YouTube trailers and teasers, official first; `season` narrows a show to one season. |\|show}/{tmdb_id}` | Proxy. Show detail carries the season list. |

@@ -4,6 +4,7 @@ import time
 
 from fastapi import APIRouter, Depends, Request
 from fastapi import status as fastapi_status
+from medialab_contracts import CredentialState
 from pydantic import BaseModel
 
 from medialab_orchestrator.core.deps import AppContext, get_context
@@ -28,6 +29,8 @@ class HealthResponse(BaseModel):
     # torrent-downloader's VPN assertion, relayed so clients can warn before a
     # download is confirmed. False whenever the downloader is unreachable.
     vpn_interface_bound: bool = False
+    credentials: dict[str, CredentialState] = {}
+    """Per-credential health across the workers and the bot; only ``invalid`` needs a human."""
 
 
 @router.get(
@@ -44,10 +47,12 @@ async def health_check(request: Request, ctx: AppContext = Depends(get_context))
     torrent_ok = await ctx.torrent.is_reachable()
     jellyfin_ok = await ctx.jellyfin.is_reachable()
     vpn_bound = await ctx.torrent.vpn_bound() if torrent_ok else False
+    credentials = await ctx.credentials.aggregate() if ctx.credentials is not None else {}
     return HealthResponse(
         status="online",
         uptime_seconds=round(time.time() - _START_TIME, 2),
         downstream=DownstreamHealth(torrent_downloader=torrent_ok, medialab_jellyfin=jellyfin_ok),
         needs_attention=len(ctx.store.list_jobs(status=JobStatus.NEEDS_ATTENTION)),
         vpn_interface_bound=vpn_bound,
+        credentials=credentials,
     )

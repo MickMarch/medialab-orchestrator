@@ -22,6 +22,7 @@ from medialab_orchestrator.core.limiter import limiter
 from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.core.middleware import RequestLoggingMiddleware
 from medialab_orchestrator.routers import (
+    credentials,
     discover,
     gateway,
     search,
@@ -44,6 +45,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tasks.append(asyncio.create_task(context.poller.run()))
         app_logger.info("Health poll every %.0fs (0 pauses).", config.health_poll_interval_seconds)
     tasks.append(asyncio.create_task(context.follow_poller.run()))
+    if context.credentials is not None:
+        tasks.append(asyncio.create_task(context.credentials.run()))
+        app_logger.info("Credential health on the health poll cadence.")
     app_logger.info("Follow poll every %ds (0 pauses).", config.follow_poll_interval_seconds)
     try:
         yield
@@ -131,6 +135,7 @@ app.include_router(watchlist.router, prefix=API_PREFIX, dependencies=[Depends(ve
 app.include_router(gateway.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(settings.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(webhooks.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
+app.include_router(credentials.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 
 
 def custom_openapi() -> dict:
