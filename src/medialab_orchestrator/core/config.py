@@ -7,6 +7,8 @@ service does not function without real downstream URLs/keys at runtime.
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+REQUEST_USERS_SEPARATOR = ","
+
 
 class AppConfig(BaseSettings):
     """Orchestrator configuration parameters."""
@@ -46,8 +48,25 @@ class AppConfig(BaseSettings):
     follow_pack_retry_timeout_seconds: int = Field(default=90)
     follow_pack_retry_minimum_seeders: int = Field(default=5)
 
+    # Jellyfin in-app requests. Comma-separated Jellyfin user ids allowed to
+    # request; empty means nobody. Intervals of 0 pause their loop.
+    jellyfin_request_users: str = Field(default="")
+    discover_refresh_seconds: int = Field(default=21600)
+    discover_poll_seconds: int = Field(default=30)
+    discover_recommendations_per_title: int = Field(default=5)
+    jellyfin_request_retry_hours: int = Field(default=12)
+
     # Discord channel webhook for follow notices; unset means no notice.
     discord_notify_webhook_url: str | None = Field(default=None)
+
+    @property
+    def jellyfin_request_user_ids(self) -> frozenset[str]:
+        """``jellyfin_request_users`` parsed; blanks and surrounding spaces dropped."""
+        return frozenset(
+            user_id.strip()
+            for user_id in self.jellyfin_request_users.split(REQUEST_USERS_SEPARATOR)
+            if user_id.strip()
+        )
 
 
 config: AppConfig = AppConfig()

@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Client calls for Jellyfin in-app requests: Discover placeholder write,
+  delete, list and refresh plus favorites on medialab-jellyfin; released
+  discover, recommendations and movie-scope automatic picks on
+  torrent-downloader (MickMarch/medialab#142).
+- Runtime settings `jellyfin_request_users`, `discover_refresh_seconds`,
+  `discover_poll_seconds`, `discover_recommendations_per_title` and
+  `jellyfin_request_retry_hours` (MickMarch/medialab#142).
+
+### Security
+
+- certifi upgraded for PYSEC-2026-4320.
+
 ## [1.8.0] - 2026-10-07
 
 ### Added
