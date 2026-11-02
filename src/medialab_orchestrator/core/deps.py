@@ -17,6 +17,7 @@ from fastapi import Request
 from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClient
 from medialab_orchestrator.core.config import config
 from medialab_orchestrator.services.credentials import CredentialLedger, CredentialMonitor
+from medialab_orchestrator.services.discover_reconcile import DiscoverReconciler
 from medialab_orchestrator.services.follow import FollowPoller
 from medialab_orchestrator.services.health_poll import HealthPoller
 from medialab_orchestrator.services.worker import PipelineWorker
@@ -33,6 +34,7 @@ class AppContext:
     follow_poller: FollowPoller
     poller: HealthPoller | None = None
     credentials: CredentialMonitor | None = None
+    discover_reconciler: DiscoverReconciler | None = None
 
 
 def build_context() -> AppContext:
@@ -49,6 +51,9 @@ def build_context() -> AppContext:
     follow_poller = FollowPoller(
         store=store, watchlist=watchlist, torrent_client=torrent, jellyfin_client=jellyfin
     )
+    discover_reconciler = DiscoverReconciler(
+        watchlist=watchlist, torrent_client=torrent, jellyfin_client=jellyfin
+    )
     credentials = CredentialMonitor(
         torrent_client=torrent,
         jellyfin_client=jellyfin,
@@ -63,6 +68,7 @@ def build_context() -> AppContext:
         follow_poller=follow_poller,
         poller=poller,
         credentials=credentials,
+        discover_reconciler=discover_reconciler,
     )
 
 

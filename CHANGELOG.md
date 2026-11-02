@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Discover reconcile loop: at startup and every `discover_refresh_seconds`,
+  writes Jellyfin Discover placeholders for the watchlist, released popular
+  titles and released recommendations seeded by allowed users' library
+  favorites, minus the library; removes stale `available` ones, never one in
+  a request, and removes nothing when a source failed
+  (MickMarch/medialab#142).
+
+### Added
+
 - Client calls for Jellyfin in-app requests: Discover placeholder write,
   delete, list and refresh plus favorites on medialab-jellyfin; released
   discover, recommendations and movie-scope automatic picks on
