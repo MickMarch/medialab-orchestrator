@@ -156,6 +156,7 @@ src/medialab_orchestrator/
 │                discover (watchlist kind + best-effort library annotation),
 │                shows (episodes joined with library presence and queued jobs),
 │                follow (wanted_episodes + FollowPoller: pick and auto-submit per follow),
+│                discover_reconcile (desired Discover placeholders + DiscoverReconciler),
 │                notify (Discord webhook notice; the one httpx use outside clients/)
 ├── routers/     system (/health), search (proxies), discover (annotated proxies), shows, watchlist
 │                (saved titles, follow / unfollow / pause / resume / check, the episode view
@@ -165,7 +166,7 @@ src/medialab_orchestrator/
 │                webhooks (torrent-complete)
 ├── schemas/     jobs, errors, watchlist (FollowCheckResponse)
 ├── scripts/     notify_complete.py (standalone relay)
-└── main.py      app, lifespan (health and follow pollers), middleware, exception handlers,
+└── main.py      app, lifespan (health, follow and Discover loops), middleware, exception handlers,
                  routers under /api/v1
 ```
 

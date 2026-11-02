@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClient
-from medialab_orchestrator.core import auth, deps
+from medialab_orchestrator.core import auth
 from medialab_orchestrator.core.deps import AppContext, get_context
 from medialab_orchestrator.services.follow import FollowPoller
 from medialab_orchestrator.services.worker import PipelineWorker
@@ -83,9 +83,12 @@ def app_client(context: AppContext, mocker) -> Iterator[TestClient]:
     the test injected, so assertions can read job rows directly.
     """
     mocker.patch.object(auth.config, "api_key", TEST_API_KEY)
-    mocker.patch.object(deps, "build_context", return_value=context)
-
+    from medialab_orchestrator import main
     from medialab_orchestrator.main import app
+
+    # main imports build_context by name, so patching deps alone left the real
+    # context (and its startup loops) running under the test client.
+    mocker.patch.object(main, "build_context", return_value=context)
 
     app.dependency_overrides[get_context] = lambda: context
     with TestClient(app, headers={"X-API-Key": TEST_API_KEY}) as client:
@@ -96,9 +99,12 @@ def app_client(context: AppContext, mocker) -> Iterator[TestClient]:
 @pytest.fixture
 def unauthed_client(context: AppContext, mocker) -> Iterator[TestClient]:
     mocker.patch.object(auth.config, "api_key", TEST_API_KEY)
-    mocker.patch.object(deps, "build_context", return_value=context)
-
+    from medialab_orchestrator import main
     from medialab_orchestrator.main import app
+
+    # main imports build_context by name, so patching deps alone left the real
+    # context (and its startup loops) running under the test client.
+    mocker.patch.object(main, "build_context", return_value=context)
 
     app.dependency_overrides[get_context] = lambda: context
     with TestClient(app) as client:
