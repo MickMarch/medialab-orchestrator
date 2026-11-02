@@ -34,8 +34,7 @@ from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClien
 from medialab_orchestrator.core.config import config
 from medialab_orchestrator.core.errors import AppException
 from medialab_orchestrator.core.logger import app_logger
-from medialab_orchestrator.schemas.jobs import DownloadRequest
-from medialab_orchestrator.services.download import create_submitted_job, submit_job
+from medialab_orchestrator.services.download import submit_pick
 from medialab_orchestrator.services.notify import (
     follow_notice,
     pack_not_found_notice,
@@ -48,9 +47,6 @@ from medialab_orchestrator.store.watchlist import EpisodeKeyTuple, SubmissionRec
 PAUSED_POLL_RECHECK_SECONDS = 60.0
 SPECIALS_SEASON = 0
 
-# Keys of the downloader's bare torrent result.
-_RESULT_NAME_KEY = "fileName"
-_RESULT_URL_KEY = "fileUrl"
 
 Submissions = dict[EpisodeKeyTuple, SubmissionRecord]
 
@@ -393,16 +389,15 @@ class FollowPoller:
         season: int,
         episode: int | None,
     ) -> PipelineJob:
-        payload = DownloadRequest(
-            source_url=str(result[_RESULT_URL_KEY]),
+        return await submit_pick(
+            result,
             media_type=MediaType.SHOW,
             tmdb_id=browse.tmdb_id,
-            release_name=str(result.get(_RESULT_NAME_KEY, "")),
             season=season,
             episode=episode,
+            store=self._store,
+            torrent=self._torrent,
         )
-        job = create_submitted_job(self._store, payload)
-        return await submit_job(job, payload, store=self._store, torrent=self._torrent)
 
     async def _announce(self, browse: ShowBrowseResponse, code: str, job: PipelineJob) -> None:
         app_logger.info("Follow poll: %s %s submitted as job %s", browse.title, code, job.id)

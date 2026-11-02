@@ -118,6 +118,29 @@ favorites unreadable) the pass only adds; a failed library or placeholder read
 skips the pass. Spec: `docs/specs/jellyfin-in-app-requests.md` in the
 workspace.
 
+## Jellyfin requests
+
+`services/requests.py` turns a favorite on a Discover placeholder into a
+download. Every `discover_poll_seconds` (0 pauses it) it reads the Discover
+favorites of each `jellyfin_request_users` user, files a request per newly
+favorited title in `jellyfin_request` (same DB, keyed by media type and TMDB
+id, canonical title and year from TMDB), and acts:
+
+- **Movie:** saved to the watchlist, then the downloader's automatic movie
+  pick (no cams) is submitted as an ordinary job. Nothing found is
+  `not_found`, picked again every `jellyfin_request_retry_hours`; a movie
+  whose every job was deleted or dismissed goes back to `not_found`.
+- **Show:** saved and followed from the beginning (an existing follow is
+  kept), checked at once; the follow poll then fetches a pack per complete
+  season and single episodes for the rest.
+
+Dropping the favorite before anything was submitted cancels the request once
+its last requester has left, and the placeholder returns to `available`.
+Each tick derives the placeholder state (`requested`, `downloading` while a
+job for the title is between `DOWNLOAD_SUBMITTED` and `SCAN`, `not_found`)
+and rewrites it only on change. A request closes, and its placeholder is
+removed, when the title reaches the library.
+
 ## Follow poll and the Discord notice
 
 `services/follow.py` is the second loop beside the health poll. Every tick it

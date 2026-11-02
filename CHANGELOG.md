@@ -6,6 +6,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Discover reconcile loop: at startup and every `discover_refresh_seconds`,
+  writes Jellyfin Discover placeholders for the watchlist, released popular
+  titles and released recommendations seeded by allowed users' library
+  favorites, minus the library; removes stale `available` ones, never one in
+  a request, and removes nothing when a source failed
+  (MickMarch/medialab#142).
+
+- Jellyfin requests: a favorite on a Discover placeholder from a
+  `jellyfin_request_users` user files a request (`jellyfin_request` table).
+  Movies get the automatic movie pick, retried every
+  `jellyfin_request_retry_hours` while nothing is found; shows are followed
+  from the beginning and checked at once. The placeholder title shows
+  Requested, Downloading or Not found yet; it is removed when the title
+  reaches the library (MickMarch/medialab#142).
+
 ## [1.9.1] - 2026-11-02
 
 ### Fixed
@@ -15,15 +32,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nobody may request.
 
 ## [1.9.0] - 2026-11-02
-
-### Added
-
-- Discover reconcile loop: at startup and every `discover_refresh_seconds`,
-  writes Jellyfin Discover placeholders for the watchlist, released popular
-  titles and released recommendations seeded by allowed users' library
-  favorites, minus the library; removes stale `available` ones, never one in
-  a request, and removes nothing when a source failed
-  (MickMarch/medialab#142).
 
 ### Added
 

@@ -55,6 +55,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "Discover reconcile at startup, then every %ds (0 pauses).",
             config.discover_refresh_seconds,
         )
+    if context.request_poller is not None:
+        tasks.append(asyncio.create_task(context.request_poller.run()))
+        app_logger.info("Jellyfin request poll every %ds (0 pauses).", config.discover_poll_seconds)
     try:
         yield
     finally:

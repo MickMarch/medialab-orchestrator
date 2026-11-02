@@ -20,8 +20,10 @@ from medialab_orchestrator.services.credentials import CredentialLedger, Credent
 from medialab_orchestrator.services.discover_reconcile import DiscoverReconciler
 from medialab_orchestrator.services.follow import FollowPoller
 from medialab_orchestrator.services.health_poll import HealthPoller
+from medialab_orchestrator.services.requests import RequestPoller
 from medialab_orchestrator.services.worker import PipelineWorker
 from medialab_orchestrator.store import JobStore, WatchlistStore
+from medialab_orchestrator.store.requests import RequestStore
 
 
 @dataclass
@@ -35,6 +37,7 @@ class AppContext:
     poller: HealthPoller | None = None
     credentials: CredentialMonitor | None = None
     discover_reconciler: DiscoverReconciler | None = None
+    request_poller: RequestPoller | None = None
 
 
 def build_context() -> AppContext:
@@ -54,6 +57,14 @@ def build_context() -> AppContext:
     discover_reconciler = DiscoverReconciler(
         watchlist=watchlist, torrent_client=torrent, jellyfin_client=jellyfin
     )
+    request_poller = RequestPoller(
+        store=store,
+        watchlist=watchlist,
+        requests=RequestStore(db_path=config.db_path),
+        torrent_client=torrent,
+        jellyfin_client=jellyfin,
+        follow_poller=follow_poller,
+    )
     credentials = CredentialMonitor(
         torrent_client=torrent,
         jellyfin_client=jellyfin,
@@ -69,6 +80,7 @@ def build_context() -> AppContext:
         poller=poller,
         credentials=credentials,
         discover_reconciler=discover_reconciler,
+        request_poller=request_poller,
     )
 
 
