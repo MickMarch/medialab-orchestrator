@@ -145,7 +145,8 @@ src/medialab_orchestrator/
 ├── store/       jobs (JobStatus, PipelineJob, JobStore over sqlite3),
 │                watchlist (WatchlistStore, same DB file: watchlist_item, renamed from
 │                wishlist_item at startup, plus follow_submission keyed by show, season, episode,
-│                and follow_season: the per-season pack mode of a follow)
+│                and follow_season: the per-season pack mode of a follow),
+│                requests (RequestStore: jellyfin_request, one row per requested title)
 ├── services/    worker (asyncio pipeline), health_poll (periodic remediation), credentials (per-key
 │                health aggregation, transition notices, JSON ledger), deletion (undo a
 │                download: plan + execute), download (the submit path shared by
@@ -157,6 +158,8 @@ src/medialab_orchestrator/
 │                shows (episodes joined with library presence and queued jobs),
 │                follow (wanted_episodes + FollowPoller: pick and auto-submit per follow),
 │                discover_reconcile (desired Discover placeholders + DiscoverReconciler),
+│                requests (RequestPoller: Discover favorites -> movie picks and show
+│                follows, derived placeholder state),
 │                notify (Discord webhook notice; the one httpx use outside clients/)
 ├── routers/     system (/health), search (proxies), discover (annotated proxies), shows, watchlist
 │                (saved titles, follow / unfollow / pause / resume / check, the episode view
@@ -166,7 +169,7 @@ src/medialab_orchestrator/
 │                webhooks (torrent-complete)
 ├── schemas/     jobs, errors, watchlist (FollowCheckResponse)
 ├── scripts/     notify_complete.py (standalone relay)
-└── main.py      app, lifespan (health, follow and Discover loops), middleware, exception handlers,
+└── main.py      app, lifespan (health, follow, Discover and request loops), middleware, exception handlers,
                  routers under /api/v1
 ```
 

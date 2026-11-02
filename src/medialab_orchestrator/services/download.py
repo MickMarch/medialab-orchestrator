@@ -7,6 +7,10 @@ response (or backfilled by the completion webhook).
 
 from __future__ import annotations
 
+from typing import Any
+
+from medialab_contracts import MediaType
+
 from medialab_orchestrator.clients import TorrentDownloaderClient
 from medialab_orchestrator.core.errors import AppException
 from medialab_orchestrator.core.logger import app_logger
@@ -15,6 +19,9 @@ from medialab_orchestrator.services.metadata import resolve_title_year
 from medialab_orchestrator.store import HashInUseError, JobStatus, JobStore, PipelineJob
 
 _RESPONSE_HASH_KEY = "torrent_hash"
+# Keys of the downloader's bare torrent result from an automatic pick.
+_PICK_NAME_KEY = "fileName"
+_PICK_URL_KEY = "fileUrl"
 
 
 def create_submitted_job(
@@ -70,3 +77,27 @@ async def submit_job(
             app_logger.warning("Download %s: %s", job.id, exc)
             job = store.update_job(job.id, status=JobStatus.FAILED, last_error=str(exc))
     return job
+
+
+async def submit_pick(
+    result: dict[str, Any],
+    *,
+    media_type: MediaType,
+    tmdb_id: int,
+    store: JobStore,
+    torrent: TorrentDownloaderClient,
+    season: int | None = None,
+    episode: int | None = None,
+) -> PipelineJob:
+    """Submit an automatic pick (the downloader's bare torrent result) as an
+    ordinary job: the follow poll and Jellyfin requests both go through here."""
+    payload = DownloadRequest(
+        source_url=str(result[_PICK_URL_KEY]),
+        media_type=media_type,
+        tmdb_id=tmdb_id,
+        release_name=str(result.get(_PICK_NAME_KEY, "")),
+        season=season,
+        episode=episode,
+    )
+    job = create_submitted_job(store, payload)
+    return await submit_job(job, payload, store=store, torrent=torrent)
