@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-02
+
 ### Added
 
 - Discover reconcile loop: at startup and every `discover_refresh_seconds`,
