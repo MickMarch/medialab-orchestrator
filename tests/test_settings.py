@@ -38,7 +38,17 @@ class TestEngine:
             "follow_pack_timeout_seconds",
             "follow_pack_retry_timeout_seconds",
             "follow_pack_retry_minimum_seeders",
+            "jellyfin_request_users",
+            "discover_refresh_seconds",
+            "discover_poll_seconds",
+            "discover_recommendations_per_title",
+            "jellyfin_request_retry_hours",
         ]
+        assert rt.view("jellyfin_request_users").value == ""
+        assert rt.view("discover_refresh_seconds").value == 21600
+        assert rt.view("discover_poll_seconds").value == 30
+        assert rt.view("discover_recommendations_per_title").value == 5
+        assert rt.view("jellyfin_request_retry_hours").value == 12
         follow_interval = rt.view("follow_poll_interval_seconds")
         assert (follow_interval.value, follow_interval.min, follow_interval.max) == (
             21600,
@@ -197,3 +207,19 @@ class TestGateway:
 
     def test_requires_api_key(self, unauthed_client: TestClient):
         assert unauthed_client.get("/api/v1/settings").status_code == 403
+
+
+class TestJellyfinRequestUsers:
+    def test_empty_means_nobody(self) -> None:
+        assert AppConfig(_env_file=None).jellyfin_request_user_ids == frozenset()
+
+    def test_parses_and_trims(self) -> None:
+        cfg = AppConfig(_env_file=None, jellyfin_request_users=" abc , ,def")
+        assert cfg.jellyfin_request_user_ids == frozenset({"abc", "def"})
+
+    def test_set_then_reset_returns_to_nobody(self, tmp_path: Path) -> None:
+        cfg, rt, _ = _runtime(tmp_path)
+        rt.set("jellyfin_request_users", "abc,def")
+        assert cfg.jellyfin_request_user_ids == frozenset({"abc", "def"})
+        rt.reset("jellyfin_request_users")
+        assert cfg.jellyfin_request_user_ids == frozenset()

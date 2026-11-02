@@ -643,6 +643,7 @@ class TestPickClient:
             "/api/v1/search/torrents/pick",
             params={
                 "query": TITLE,
+                "media_type": "show",
                 "season": 2,
                 "episode": 5,
                 "resolution": RESOLUTION,
@@ -660,6 +661,7 @@ class TestPickClient:
         )
         assert request.await_args.kwargs["params"] == {
             "query": TITLE,
+            "media_type": "show",
             "season": 2,
             "resolution": RESOLUTION,
             "min_seeders": PACK_SEEDERS,

@@ -84,15 +84,44 @@ class TorrentDownloaderClient(DownstreamClient):
         return VideosResponse.model_validate(body)
 
     async def discover(
-        self, media_type: MediaType, *, genre: int | None = None, page: int | None = None
+        self,
+        media_type: MediaType,
+        *,
+        genre: int | None = None,
+        page: int | None = None,
+        released: bool = False,
     ) -> DiscoverResponse:
+        """Trending or genre titles; ``released`` keeps only titles out at home."""
         params: dict[str, Any] = {}
         if genre is not None:
             params["genre"] = genre
         if page is not None:
             params["page"] = page
+        if released:
+            params["released"] = True
         body = await self.get(
             f"{API_PREFIX}/discover/{media_type.value}", params=params, relay=_DISCOVER_RELAYED
+        )
+        return DiscoverResponse.model_validate(body)
+
+    async def recommendations(
+        self,
+        media_type: MediaType,
+        tmdb_id: int,
+        *,
+        released: bool = False,
+        limit: int | None = None,
+    ) -> DiscoverResponse:
+        """TMDB's recommendations for one title, in its order."""
+        params: dict[str, Any] = {}
+        if released:
+            params["released"] = True
+        if limit is not None:
+            params["limit"] = limit
+        body = await self.get(
+            f"{API_PREFIX}/discover/{media_type.value}/recommendations/{tmdb_id}",
+            params=params,
+            relay=_DISCOVER_RELAYED,
         )
         return DiscoverResponse.model_validate(body)
 
@@ -123,23 +152,26 @@ class TorrentDownloaderClient(DownstreamClient):
         self,
         query: str,
         *,
-        season: int,
         resolution: str,
         min_seeders: int,
+        media_type: MediaType = MediaType.SHOW,
+        season: int | None = None,
         episode: int | None = None,
         timeout_seconds: int | None = None,
     ) -> Any:
-        """The downloader's automatic pick for one episode, or for the season's
-        pack when ``episode`` is unset: a bare torrent result, or ``None`` when
+        """The downloader's automatic pick: a movie, one episode, or a season's
+        pack when ``episode`` is unset. A bare torrent result, or ``None`` when
         it answers 404 ``NO_CANDIDATE``. ``timeout_seconds`` makes that one
         search wait longer. Any other failure (qBittorrent down, unreachable)
         raises as usual."""
         params: dict[str, Any] = {
             "query": query,
-            "season": season,
+            "media_type": media_type.value,
             "resolution": resolution,
             "min_seeders": min_seeders,
         }
+        if season is not None:
+            params["season"] = season
         if episode is not None:
             params["episode"] = episode
         if timeout_seconds is not None:

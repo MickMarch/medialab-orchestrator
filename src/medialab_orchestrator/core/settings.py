@@ -25,12 +25,17 @@ from medialab_orchestrator.core.logger import app_logger
 SERVICE_NAME = "medialab-orchestrator"
 _APPLIES_NEXT_TICK = "next health-poll tick"
 _APPLIES_NEXT_FOLLOW_TICK = "next follow tick"
+_APPLIES_NEXT_DISCOVER_TICK = "next Discover refresh"
+_APPLIES_NEXT_REQUEST_TICK = "next request poll tick"
 
 _ONE_HOUR_SECONDS = 3600
 _ONE_WEEK_SECONDS = 7 * 24 * _ONE_HOUR_SECONDS
 _ONE_WEEK_HOURS = 7 * 24
 _MAX_SUBMISSIONS_PER_TICK = 20
 _MAX_SEEDERS = 1000
+_MAX_DISCOVER_POLL_SECONDS = 3600
+# TMDB returns one page of twenty recommendations; the orchestrator never pages.
+_MAX_RECOMMENDATIONS_PER_TITLE = 20
 # Bounded like torrent-downloader's search_timeout_seconds, which these override per search.
 _MIN_SEARCH_TIMEOUT_SECONDS = 5
 _MAX_SEARCH_TIMEOUT_SECONDS = 120
@@ -123,6 +128,47 @@ SETTINGS: tuple[SettingSpec, ...] = (
         max=_MAX_SEEDERS,
         description="Seeder floor when the user retries a missing pack with fewer seeders.",
         applies=_APPLIES_NEXT_FOLLOW_TICK,
+    ),
+    SettingSpec(
+        key="jellyfin_request_users",
+        type=SettingType.STR,
+        description=(
+            "Comma-separated Jellyfin user ids allowed to request from Discover; "
+            "reset to allow nobody."
+        ),
+        applies=_APPLIES_NEXT_REQUEST_TICK,
+    ),
+    SettingSpec(
+        key="discover_refresh_seconds",
+        type=SettingType.INT,
+        min=0,
+        max=_ONE_WEEK_SECONDS,
+        description="Seconds between Discover placeholder refreshes; 0 pauses them.",
+        applies=_APPLIES_NEXT_DISCOVER_TICK,
+    ),
+    SettingSpec(
+        key="discover_poll_seconds",
+        type=SettingType.INT,
+        min=0,
+        max=_MAX_DISCOVER_POLL_SECONDS,
+        description="Seconds between Discover favorites polls; 0 pauses requests.",
+        applies=_APPLIES_NEXT_REQUEST_TICK,
+    ),
+    SettingSpec(
+        key="discover_recommendations_per_title",
+        type=SettingType.INT,
+        min=0,
+        max=_MAX_RECOMMENDATIONS_PER_TITLE,
+        description="Recommendations added to Discover per favorited library title.",
+        applies=_APPLIES_NEXT_DISCOVER_TICK,
+    ),
+    SettingSpec(
+        key="jellyfin_request_retry_hours",
+        type=SettingType.INT,
+        min=1,
+        max=_ONE_WEEK_HOURS,
+        description="Hours before a Discover request with nothing found is picked again.",
+        applies=_APPLIES_NEXT_REQUEST_TICK,
     ),
 )
 

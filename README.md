@@ -97,6 +97,11 @@ tick of the loop it tunes.
 | `follow_pack_timeout_seconds` | 5 to 120 | 30 | Search timeout for a season pack pick. |
 | `follow_pack_retry_timeout_seconds` | 5 to 120 | 90 | Timeout when the user retries a missing pack with a longer search. |
 | `follow_pack_retry_minimum_seeders` | 0 to 1000 | 5 | Seeder floor when the user retries a missing pack with fewer seeders. |
+| `jellyfin_request_users` | comma-separated ids | empty | Jellyfin user ids allowed to request from Discover; empty (the default, and what reset returns to) allows nobody. |
+| `discover_refresh_seconds` | 0 to 604800 | 21600 | Seconds between Discover placeholder refreshes; 0 pauses them. |
+| `discover_poll_seconds` | 0 to 3600 | 30 | Seconds between Discover favorites polls; 0 pauses requests. |
+| `discover_recommendations_per_title` | 0 to 20 | 5 | Recommendations added to Discover per favorited library title. |
+| `jellyfin_request_retry_hours` | 1 to 168 | 12 | Hours before a request with nothing found is picked again. |
 
 ## Follow poll and the Discord notice
 

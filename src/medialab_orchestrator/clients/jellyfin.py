@@ -6,15 +6,21 @@ from typing import Any
 
 from medialab_contracts import (
     API_PREFIX,
+    FavoriteScope,
+    JellyfinRequestEvent,
     LibraryEpisodesResponse,
     LibraryTmdbIdsResponse,
     MediaType,
+    PlaceholdersResponse,
+    PlaceholderWrite,
 )
+from pydantic import TypeAdapter
 
 from medialab_orchestrator.clients.base import DownstreamClient
 from medialab_orchestrator.core.config import config
 
 _SCAN_UPDATE_TYPE_CREATED = "Created"
+_FAVORITES = TypeAdapter(list[JellyfinRequestEvent])
 
 
 class JellyfinClient(DownstreamClient):
@@ -54,3 +60,45 @@ class JellyfinClient(DownstreamClient):
     async def library_episodes(self, tmdb_id: int) -> LibraryEpisodesResponse:
         body = await self.get(f"{API_PREFIX}/library/episodes", params={"tmdb_id": tmdb_id})
         return LibraryEpisodesResponse.model_validate(body)
+
+    async def put_placeholder(
+        self, media_type: MediaType, tmdb_id: int, body: PlaceholderWrite, *, refresh: bool = True
+    ) -> None:
+        """Create or update one placeholder; unchanged is a no-op downstream.
+        ``refresh=False`` batches writes before one ``refresh_discover``."""
+        await self.request(
+            "PUT",
+            f"{API_PREFIX}/discover/placeholders/{media_type.value}/{tmdb_id}",
+            params={"refresh": refresh},
+            json=body.model_dump(mode="json"),
+        )
+
+    async def delete_placeholder(
+        self, media_type: MediaType, tmdb_id: int, *, refresh: bool = True
+    ) -> None:
+        """Remove one placeholder; absent is not an error downstream."""
+        await self.request(
+            "DELETE",
+            f"{API_PREFIX}/discover/placeholders/{media_type.value}/{tmdb_id}",
+            params={"refresh": refresh},
+        )
+
+    async def placeholders(self, media_type: MediaType) -> PlaceholdersResponse:
+        body = await self.get(
+            f"{API_PREFIX}/discover/placeholders", params={"media_type": media_type.value}
+        )
+        return PlaceholdersResponse.model_validate(body)
+
+    async def refresh_discover(self, media_type: MediaType) -> None:
+        await self.request(
+            "POST", f"{API_PREFIX}/discover/refresh", params={"media_type": media_type.value}
+        )
+
+    async def favorites(self, user_id: str, scope: FavoriteScope) -> list[JellyfinRequestEvent]:
+        """One user's favorites on Discover placeholders (requests) or on real
+        library items (recommendation seeds)."""
+        body = await self.get(
+            f"{API_PREFIX}/discover/favorites",
+            params={"user_id": user_id, "scope": scope.value},
+        )
+        return _FAVORITES.validate_python(body)

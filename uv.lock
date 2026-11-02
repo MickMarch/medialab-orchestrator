@@ -121,11 +121,11 @@ wheels = [
 
 [[package]]
 name = "certifi"
-version = "2026.6.17"
+version = "2026.10.23"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c9/c7/424b75da314c1045981bd9777432fad05a9e0c69daa4ed7e308bbaffe405/certifi-2026.6.17.tar.gz", hash = "sha256:024c88eeec92ca068db80f02b8b07c9cef7b9fe261d1d535abfd5abd6f6af432", size = 134594, upload-time = "2026-06-17T10:31:07.894Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fd/11/b524cbd9bbdaca58608e4cf4053fd463417549e1959fa8d3aa18319f9555/certifi-2026.10.23.tar.gz", hash = "sha256:a9895e6e2758b371e0545e321a3a8fd1fcfd9829ada8824a936dfb16aaaf36cd", size = 136225, upload-time = "2026-10-23T11:36:16.478Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ef/2f/c5464532e965badff2f4c4c1a3a83f5697f0d7c407ed0cda44aaa99bb451/certifi-2026.6.17-py3-none-any.whl", hash = "sha256:2227dcbaafe0d2f59279d1762ddddc37783ed4354594f194ffc31d20f41fc3db", size = 133289, upload-time = "2026-06-17T10:31:06.348Z" },
+    { url = "https://files.pythonhosted.org/packages/32/d1/a3652fe2c19134d0d15922177821d863cbd7e842d53a21bbe7e8e3a1b5ac/certifi-2026.10.23-py3-none-any.whl", hash = "sha256:e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1", size = 135082, upload-time = "2026-10-23T11:36:14.763Z" },
 ]
 
 [[package]]
@@ -350,8 +350,8 @@ wheels = [
 
 [[package]]
 name = "medialab-contracts"
-version = "1.3.0"
-source = { git = "https://github.com/MickMarch/medialab-contracts?rev=v1.3.0#d69dafc42f3aa3a37e5241cee503bf1ad8da4e64" }
+version = "1.5.0"
+source = { git = "https://github.com/MickMarch/medialab-contracts?rev=v1.5.0#e5effdc2dd50c2469ebdfdb1f3f5da401ee52f26" }
 dependencies = [
     { name = "pydantic" },
 ]
@@ -382,7 +382,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.136.1" },
     { name = "httpx", specifier = ">=0.28.0" },
-    { name = "medialab-contracts", git = "https://github.com/MickMarch/medialab-contracts?rev=v1.3.0" },
+    { name = "medialab-contracts", git = "https://github.com/MickMarch/medialab-contracts?rev=v1.5.0" },
     { name = "parse-torrent-title", specifier = ">=2.8.2" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "slowapi", specifier = ">=0.1.9" },
