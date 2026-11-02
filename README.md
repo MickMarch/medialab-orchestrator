@@ -103,6 +103,21 @@ tick of the loop it tunes.
 | `discover_recommendations_per_title` | 0 to 20 | 5 | Recommendations added to Discover per favorited library title. |
 | `jellyfin_request_retry_hours` | 1 to 168 | 12 | Hours before a request with nothing found is picked again. |
 
+## Discover reconcile
+
+`services/discover_reconcile.py` keeps the Jellyfin Discover placeholders in
+step with what is worth requesting. It runs once at startup, then every
+`discover_refresh_seconds` (0 pauses it). The desired set is the watchlist,
+the released popular titles of each type, and the released recommendations
+(`discover_recommendations_per_title` each) for every real-library title a
+`jellyfin_request_users` user favorited, minus the library. Missing titles are
+written as `available` placeholders, stale `available` ones removed, then each
+changed Discover library is refreshed once. A placeholder in any other state
+belongs to a request and is never removed. When any source fails (TMDB down,
+favorites unreadable) the pass only adds; a failed library or placeholder read
+skips the pass. Spec: `docs/specs/jellyfin-in-app-requests.md` in the
+workspace.
+
 ## Follow poll and the Discord notice
 
 `services/follow.py` is the second loop beside the health poll. Every tick it
