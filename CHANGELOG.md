@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `.env.example` leaves `JELLYFIN_REQUEST_USERS` commented out. An empty
+  value made `medialab-setup update` stop and ask for it; unset already means
+  nobody may request.
+
 ## [1.9.0] - 2026-11-02
 
 ### Added
