@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-11-02
+
 ### Fixed
 
 - `.env.example` leaves `JELLYFIN_REQUEST_USERS` commented out. An empty
