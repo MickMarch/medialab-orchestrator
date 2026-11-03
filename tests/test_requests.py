@@ -392,3 +392,23 @@ class TestTick:
         await poller.poll(now=NOW)
         show = requests_store.get(MediaType.SHOW, SEVERANCE_ID)
         assert show is not None and show.status is RequestStatus.SUBMITTED
+
+
+class TestRequestResolution:
+    async def test_movie_pick_uses_the_setting(
+        self, poller, downstream, torrent_client, mocker
+    ) -> None:
+        mocker.patch.object(config_module.config, "jellyfin_request_resolution", "720p")
+        downstream.favorites[USER] = [(MediaType.MOVIE, HEAT_ID)]
+        await poller.poll(now=NOW)
+        assert torrent_client.pick_torrent.await_args.kwargs["resolution"] == "720p"
+
+    async def test_show_follow_uses_the_setting(
+        self, poller, downstream, watchlist, mocker
+    ) -> None:
+        mocker.patch.object(config_module.config, "jellyfin_request_resolution", "4K")
+        downstream.favorites[USER] = [(MediaType.SHOW, SEVERANCE_ID)]
+        await poller.poll(now=NOW)
+        item = watchlist.get(MediaType.SHOW, SEVERANCE_ID)
+        assert item is not None and item.follow is not None
+        assert item.follow.resolution == "4K"

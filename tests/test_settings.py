@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
-from medialab_contracts import SettingSource
+from medialab_contracts import DEFAULT_FOLLOW_RESOLUTION, PICK_RESOLUTIONS, SettingSource
 
 from medialab_orchestrator.core.config import AppConfig
 from medialab_orchestrator.core.settings import RuntimeSettings, SettingsStore, UnknownSettingError
@@ -43,6 +43,7 @@ class TestEngine:
             "discover_poll_seconds",
             "discover_recommendations_per_title",
             "jellyfin_request_retry_hours",
+            "jellyfin_request_resolution",
         ]
         assert rt.view("jellyfin_request_users").value == ""
         assert rt.view("discover_refresh_seconds").value == 21600
@@ -223,3 +224,21 @@ class TestJellyfinRequestUsers:
         assert cfg.jellyfin_request_user_ids == frozenset({"abc", "def"})
         rt.reset("jellyfin_request_users")
         assert cfg.jellyfin_request_user_ids == frozenset()
+
+
+class TestJellyfinRequestResolution:
+    def test_defaults_to_the_follow_default_with_the_pick_choices(self, tmp_path: Path) -> None:
+        cfg, rt, _ = _runtime(tmp_path)
+        assert cfg.jellyfin_request_resolution == DEFAULT_FOLLOW_RESOLUTION
+        assert rt.view("jellyfin_request_resolution").choices == list(PICK_RESOLUTIONS)
+
+    def test_set_keeps_the_declared_spelling(self, tmp_path: Path) -> None:
+        cfg, rt, _ = _runtime(tmp_path)
+        rt.set("jellyfin_request_resolution", "4k")
+        assert cfg.jellyfin_request_resolution == "4K"
+
+    def test_rejects_a_resolution_outside_the_choices(self, tmp_path: Path) -> None:
+        cfg, rt, _ = _runtime(tmp_path)
+        with pytest.raises(ValueError, match="one of"):
+            rt.set("jellyfin_request_resolution", "480p")
+        assert cfg.jellyfin_request_resolution == DEFAULT_FOLLOW_RESOLUTION
