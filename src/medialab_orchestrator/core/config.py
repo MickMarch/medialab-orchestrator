@@ -4,6 +4,7 @@ Every field is optional at import time (CI has no .env and no secrets) but the
 service does not function without real downstream URLs/keys at runtime.
 """
 
+from medialab_contracts import DEFAULT_FOLLOW_RESOLUTION
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -55,6 +56,7 @@ class AppConfig(BaseSettings):
     discover_poll_seconds: int = Field(default=30)
     discover_recommendations_per_title: int = Field(default=5)
     jellyfin_request_retry_hours: int = Field(default=12)
+    jellyfin_request_resolution: str = Field(default=DEFAULT_FOLLOW_RESOLUTION)
 
     # Discord channel webhook for follow notices; unset means no notice.
     discord_notify_webhook_url: str | None = Field(default=None)

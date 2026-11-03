@@ -18,7 +18,6 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 from medialab_contracts import (
-    DEFAULT_FOLLOW_RESOLUTION,
     FavoriteScope,
     FollowRequest,
     FollowStart,
@@ -254,7 +253,7 @@ class RequestPoller:
         result = await self._torrent.pick_torrent(
             movie_query(request.title, request.year),
             media_type=MediaType.MOVIE,
-            resolution=DEFAULT_FOLLOW_RESOLUTION,
+            resolution=config.jellyfin_request_resolution,
             min_seeders=int(config.follow_minimum_seeders),
         )
         if result is None:
@@ -279,7 +278,10 @@ class RequestPoller:
             self._save(request)
             current = self._watchlist.follow(
                 request.tmdb_id,
-                FollowRequest(start=FollowStart(mode=FollowStartMode.BEGINNING)),
+                FollowRequest(
+                    start=FollowStart(mode=FollowStartMode.BEGINNING),
+                    resolution=config.jellyfin_request_resolution,
+                ),
             )
         updated = self._requests.update(
             MediaType.SHOW, request.tmdb_id, status=RequestStatus.SUBMITTED

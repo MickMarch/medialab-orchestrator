@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `jellyfin_request_resolution` runtime setting (`JELLYFIN_REQUEST_RESOLUTION`,
+  default `1080p`, choices `PICK_RESOLUTIONS`): the resolution a Jellyfin
+  movie request picks at and a show request follows at
+  (MickMarch/medialab#153).
+
 ## [1.10.0] - 2026-11-02
 
 ### Added

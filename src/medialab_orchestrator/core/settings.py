@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from medialab_contracts import (
+    PICK_RESOLUTIONS,
     SettingSource,
     SettingSpec,
     SettingType,
@@ -168,6 +169,13 @@ SETTINGS: tuple[SettingSpec, ...] = (
         min=1,
         max=_ONE_WEEK_HOURS,
         description="Hours before a Discover request with nothing found is picked again.",
+        applies=_APPLIES_NEXT_REQUEST_TICK,
+    ),
+    SettingSpec(
+        key="jellyfin_request_resolution",
+        type=SettingType.CHOICE,
+        choices=list(PICK_RESOLUTIONS),
+        description="Resolution a Discover request picks at, and a show request follows at.",
         applies=_APPLIES_NEXT_REQUEST_TICK,
     ),
 )

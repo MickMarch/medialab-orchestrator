@@ -102,6 +102,7 @@ tick of the loop it tunes.
 | `discover_poll_seconds` | 0 to 3600 | 30 | Seconds between Discover favorites polls; 0 pauses requests. |
 | `discover_recommendations_per_title` | 0 to 20 | 5 | Recommendations added to Discover per favorited library title. |
 | `jellyfin_request_retry_hours` | 1 to 168 | 12 | Hours before a request with nothing found is picked again. |
+| `jellyfin_request_resolution` | `4K`, `1080p`, `720p` | `1080p` | Resolution a request picks at, and a show request follows at. Whether a pick may go lower is torrent-downloader's `pick_resolution_fallback`. |
 
 ## Discover reconcile
 
