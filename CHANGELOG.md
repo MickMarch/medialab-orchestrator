@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-03
+
 ### Added
 
 - `jellyfin_request_resolution` runtime setting (`JELLYFIN_REQUEST_RESOLUTION`,
