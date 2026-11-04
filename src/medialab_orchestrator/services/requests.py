@@ -41,6 +41,8 @@ from medialab_orchestrator.store import JobStatus, JobStore, WatchlistStore
 from medialab_orchestrator.store.requests import JellyfinRequest, RequestStatus, RequestStore
 
 PAUSED_POLL_RECHECK_SECONDS = 60.0
+# After a wake, wait this long so a burst of webhook events is one tick.
+WAKE_SETTLE_SECONDS = 2.0
 
 TitleKey = tuple[MediaType, int]
 
@@ -92,17 +94,32 @@ class RequestPoller:
         self._torrent = torrent_client
         self._jellyfin = jellyfin_client
         self._follow = follow_poller
+        self._wake = asyncio.Event()
+
+    def wake(self) -> None:
+        """Cut the current wait short (a Jellyfin webhook event)."""
+        self._wake.set()
 
     async def run(self) -> None:
         """Tick forever; the interval is re-read before every sleep and 0
-        pauses requests (checked again after ``PAUSED_POLL_RECHECK_SECONDS``)."""
+        pauses requests (checked again after ``PAUSED_POLL_RECHECK_SECONDS``,
+        wakes ignored). A wake ends the wait early."""
         while True:
             interval = float(config.discover_poll_seconds)
             if interval <= 0:
+                self._wake.clear()
                 await asyncio.sleep(PAUSED_POLL_RECHECK_SECONDS)
                 continue
-            await asyncio.sleep(interval)
+            await self._wait(interval)
             await self.tick()
+
+    async def _wait(self, interval: float) -> None:
+        try:
+            await asyncio.wait_for(self._wake.wait(), timeout=interval)
+        except TimeoutError:
+            return
+        await asyncio.sleep(WAKE_SETTLE_SECONDS)
+        self._wake.clear()
 
     async def tick(self, *, now: datetime | None = None) -> None:
         """One pass. Never raises."""

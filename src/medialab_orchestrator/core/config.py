@@ -56,6 +56,7 @@ class AppConfig(BaseSettings):
     discover_poll_seconds: int = Field(default=30)
     discover_recommendations_per_title: int = Field(default=5)
     jellyfin_request_retry_hours: int = Field(default=12)
+    jellyfin_webhook_secret: str | None = Field(default=None)
     jellyfin_request_resolution: str = Field(default=DEFAULT_FOLLOW_RESOLUTION)
 
     # Discord channel webhook for follow notices; unset means no notice.

@@ -1,5 +1,7 @@
 """API key authentication dependency for protected endpoints."""
 
+import hmac
+
 from fastapi import Security
 from fastapi.security import APIKeyHeader
 from medialab_contracts import API_KEY_HEADER
@@ -15,6 +17,7 @@ async def verify_api_key(api_key: str | None = Security(_api_key_header)) -> Non
     if api_key is None:
         app_logger.warning(f"Request rejected: missing {API_KEY_HEADER} header")
         raise AppException(status_code=403, code=ErrorCode.UNAUTHORIZED, detail="Missing API key.")
-    if api_key != config.api_key:
+    expected = config.api_key
+    if not expected or not hmac.compare_digest(api_key.encode(), expected.encode()):
         app_logger.warning("Request rejected: invalid API key")
         raise AppException(status_code=403, code=ErrorCode.UNAUTHORIZED, detail="Invalid API key.")
