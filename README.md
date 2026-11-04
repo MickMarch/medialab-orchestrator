@@ -72,6 +72,7 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 | `PUT` | `/settings/{service}/{key}` | Override one setting (`{"value": ...}`) on the named service; `404` unknown service or key, `422` out of bounds. |
 | `DELETE` | `/settings/{service}/{key}` | Drop the override. |
 | `POST` | `/transfers/stop-seeding` | Proxy to torrent-downloader: pause every seeding (completed) torrent, never an in-progress download. `202`. No job involved. |
+| `POST` | `/jellyfin/events` | Jellyfin Webhook plugin event. Not behind the gateway key: needs `X-Medialab-Webhook-Secret` equal to `JELLYFIN_WEBHOOK_SECRET` (constant-time; unset rejects all, `403 UNAUTHORIZED`). The body is not read; a valid event wakes the request poll and returns `202`. |
 | `POST` | `/webhooks/torrent-complete` | Body `{hash, name}`, sent by the completion relay. Matches the job by hash (or orphan-inserts), advances it off the request thread, returns `202`. |
 
 Errors: `{"status": "error", "code": "<ErrorCode>", "detail": "..."}`. Every
@@ -134,6 +135,11 @@ id, canonical title and year from TMDB), and acts:
 - **Show:** saved and followed from the beginning (an existing follow is
   kept), checked at once; the follow poll then fetches a pack per complete
   season and single episodes for the rest.
+
+With the Jellyfin Webhook plugin pointed at `POST /jellyfin/events`, a
+favorite is picked up within `WAKE_SETTLE_SECONDS` (2) instead of up to
+`discover_poll_seconds`: the event only wakes the poll, so a burst of events
+is one tick and a webhook and a poll never file a title twice.
 
 Dropping the favorite before anything was submitted cancels the request once
 its last requester has left, and the placeholder returns to `available`.

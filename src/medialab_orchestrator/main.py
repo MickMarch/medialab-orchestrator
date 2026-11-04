@@ -25,6 +25,7 @@ from medialab_orchestrator.routers import (
     credentials,
     discover,
     gateway,
+    jellyfin_events,
     search,
     settings,
     shows,
@@ -144,6 +145,8 @@ app.include_router(watchlist.router, prefix=API_PREFIX, dependencies=[Depends(ve
 app.include_router(gateway.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(settings.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(webhooks.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
+# Keyed by its own shared secret header, not the gateway API key.
+app.include_router(jellyfin_events.router, prefix=API_PREFIX)
 app.include_router(credentials.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 
 

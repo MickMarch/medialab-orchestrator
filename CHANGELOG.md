@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `POST /jellyfin/events`: the Jellyfin Webhook plugin's event wakes the
+  request poll at once. Keyed by `JELLYFIN_WEBHOOK_SECRET` in the
+  `X-Medialab-Webhook-Secret` header (constant-time), not the gateway API key;
+  the body is not read (MickMarch/medialab#158).
+
+### Security
+
+- The gateway `X-API-Key` check compares in constant time.
+
 ## [1.11.0] - 2026-11-03
 
 ### Added

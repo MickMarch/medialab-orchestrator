@@ -102,6 +102,10 @@ Jellyfin recursively scans them and 404s on a sub-path of a registered root.
 - **Keyed webhook.** `POST /webhooks/torrent-complete` requires the gateway
   `X-API-Key` like everything else; localhost inside the compose network is
   not a trust boundary. Returns `202` immediately, never blocks qBittorrent.
+- **Jellyfin events have their own secret.** `POST /jellyfin/events` is the one
+  route outside the gateway key: the Webhook plugin sends
+  `JELLYFIN_WEBHOOK_SECRET` in `X-Medialab-Webhook-Secret`, compared in
+  constant time. It never reads the body; it only wakes the request poll.
 - **Standalone relay.** `scripts/notify_complete.py` is stdlib-only (`urllib`,
   no package imports) so the same file runs on the host today and inside a
   qBittorrent container later.
@@ -166,7 +170,8 @@ src/medialab_orchestrator/
 │                with submitted + wanted, Retry),
 │                settings (suite settings, local + relayed),
 │                gateway (download/transfers/jobs/storage),
-│                webhooks (torrent-complete)
+│                webhooks (torrent-complete), jellyfin_events (Webhook plugin
+│                wake-up for the request poll; own secret header, no API key)
 ├── schemas/     jobs, errors, watchlist (FollowCheckResponse)
 ├── scripts/     notify_complete.py (standalone relay)
 └── main.py      app, lifespan (health, follow, Discover and request loops), middleware, exception handlers,
