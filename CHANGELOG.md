@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-04
+
 ### Added
 
 - `POST /jellyfin/events`: the Jellyfin Webhook plugin's event wakes the
