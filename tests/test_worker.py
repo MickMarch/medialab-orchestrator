@@ -429,3 +429,30 @@ class TestWatchlistCleanupOnDone:
 
         assert job.status is JobStatus.DONE
         assert job.last_error is None
+
+
+class TestNumberingAtRename:
+    async def test_numbering_unavailable_fails_the_job_without_moving_files(
+        self,
+        worker: PipelineWorker,
+        store: JobStore,
+        torrent_client: AsyncMock,
+        jellyfin_client: AsyncMock,
+        tmp_path: Path,
+        mocker,
+    ):
+        mocker.patch.object(worker_module.config, "media_mount_path", str(tmp_path))
+        folder = tmp_path / "Shows" / TV_RELEASE
+        folder.mkdir(parents=True)
+        (folder / "Show.Name.S03E01.1080p.mkv").write_text("ep")
+        _seed_tv_job(store)
+        _wire_downstream(torrent_client, jellyfin_client)
+        torrent_client.show_numbering.side_effect = RuntimeError("down")
+
+        job = await worker.process(HASH)
+
+        assert job.status is JobStatus.FAILED
+        assert ErrorCode.DOWNSTREAM_UNAVAILABLE.value in (job.last_error or "") or "numbering" in (
+            job.last_error or ""
+        )
+        assert (folder / "Show.Name.S03E01.1080p.mkv").exists()

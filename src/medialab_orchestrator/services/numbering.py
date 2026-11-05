@@ -10,8 +10,8 @@ from medialab_contracts import EpisodeState, FollowState, NumberingMode, ShowNum
 from medialab_orchestrator.clients import TorrentDownloaderClient
 from medialab_orchestrator.core.logger import app_logger
 
-NUMBERING_AUTO = "auto"
-NUMBERING_TMDB = "tmdb"
+NUMBERING_AUTO = NumberingMode.AUTO.value
+NUMBERING_TMDB = NumberingMode.TMDB.value
 
 
 def numbering_group(follow: FollowState | None) -> str:

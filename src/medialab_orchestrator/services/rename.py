@@ -137,7 +137,7 @@ def parse_episode(file_name: str, numbering: ShowNumbering | None = None) -> tup
     parsed = PTN.parse(file_name)
     season = parsed.get("season")
     episode = parsed.get("episode")
-    if numbering is not None and season is None:
+    if numbering is not None and numbering.is_mapped and season is None:
         absolute = parse_absolute_episode(file_name)
         number = numbering.for_absolute(absolute) if absolute is not None else None
         if number is not None:
@@ -164,15 +164,20 @@ def _to_canonical(
     numbering: ShowNumbering, season: int, episodes: list[int]
 ) -> tuple[int, list[int]]:
     """A release code -> canonical when every episode maps into one canonical
-    season. Anything else (unmapped show, a code that is already canonical, an
-    unknown code) is kept as parsed."""
+    season. For a mapped show a code is read as a release code first (that is
+    how releases are named), then as a canonical one; a code that is neither
+    raises, so the file goes to extras instead of an invented season."""
     if not numbering.is_mapped:
         return season, episodes
     numbers = [numbering.for_release(season, e) for e in episodes]
     mapped = [n for n in numbers if n is not None]
-    if len(mapped) != len(numbers) or len({n.season for n in mapped}) != 1:
+    if len(mapped) == len(numbers) and len({n.season for n in mapped}) == 1:
+        return mapped[0].season, sorted(n.episode for n in mapped)
+    if all(numbering.for_canonical(season, e) is not None for e in episodes):
         return season, episodes
-    return mapped[0].season, sorted(n.episode for n in mapped)
+    raise EpisodeUnparseableError(
+        f"S{season:02d}E{episodes[0]:02d} is neither a release nor a TMDB episode of this show"
+    )
 
 
 EpisodeCode = tuple[int, tuple[int, ...]]

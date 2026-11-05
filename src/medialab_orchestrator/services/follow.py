@@ -125,6 +125,7 @@ def is_wanted(
 ) -> bool:
     return (
         episode.season != SPECIALS_SEASON
+        and release_code(episode)[0] != SPECIALS_SEASON
         and _at_or_after_start(episode, follow)
         and _aired_long_enough(episode, now=now, delay_hours=delay_hours)
         and not episode.in_library
@@ -370,7 +371,8 @@ class FollowPoller:
         submitted: list[str],
         numbering: ShowNumbering | None,
     ) -> None:
-        """Searched and scoped by release code; recorded by canonical code."""
+        """Searched by release code and absolute number; the job scope and the
+        submission stay canonical."""
         season, number = release_code(episode)
         result = await self._torrent.pick_torrent(
             browse.title,
@@ -384,7 +386,9 @@ class FollowPoller:
         if result is None:
             return
         code = episode_code(season, number)
-        job = await self._submit(browse, result, season=season, episode=number)
+        # The job keeps the canonical scope, like a manual download, so the
+        # browse view and the next tick see the episode as queued.
+        job = await self._submit(browse, result, season=episode.season, episode=episode.episode)
         self._watchlist.record_submission(browse.tmdb_id, episode.season, episode.episode, job.id)
         await self._announce(browse, code, job)
         submitted.append(code)

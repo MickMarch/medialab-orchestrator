@@ -30,6 +30,13 @@ from medialab_orchestrator.services.numbering import (
 )
 from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob, WatchlistStore
 
+
+class NumberingUnread:
+    """Marks a browse whose caller did not read the numbering itself."""
+
+
+NUMBERING_UNREAD = NumberingUnread()
+
 # Jobs no longer heading for the library. FAILED is retryable, so it still
 # counts as queued. Mirrors the health poll's notion.
 _TERMINAL = frozenset({JobStatus.DONE, JobStatus.NEEDS_ATTENTION, JobStatus.DELETED})
@@ -44,14 +51,14 @@ EpisodeKeyTuple = tuple[int, int]
 
 def job_covers(job: PipelineJob, episode: EpisodeState) -> bool:
     """Whether the job's search scope includes this episode: whole series,
-    the episode's season, or the episode itself. A job scope is in release
-    numbering, which equals canonical for an unmapped show."""
+    the episode's season, or the episode itself. An episode scope is canonical
+    (what the user or follow wanted); a season scope is the release season,
+    which is what a season search finds. Both equal canonical when unmapped."""
     if job.season is None:
         return True
-    season, number = release_code(episode)
-    if job.season != season:
-        return False
-    return job.episode is None or job.episode == number
+    if job.episode is None:
+        return job.season == release_code(episode)[0]
+    return (job.season, job.episode) == (episode.season, episode.episode)
 
 
 def queued_job_id(jobs: list[PipelineJob], episode: EpisodeState) -> str | None:
@@ -110,11 +117,12 @@ async def browse_show(
     jellyfin: JellyfinClient,
     store: JobStore,
     watchlist: WatchlistStore,
-    numbering: ShowNumbering | None = None,
+    numbering: ShowNumbering | None | NumberingUnread = NUMBERING_UNREAD,
 ) -> ShowBrowseResponse:
-    """``numbering`` defaults to the show's, read with its follow's group."""
+    """``numbering`` defaults to the show's, read with its follow's group; a
+    caller that already read it (None for a failed read) passes it through."""
     listing = await torrent.series_episodes(tmdb_id)
-    if numbering is None:
+    if isinstance(numbering, NumberingUnread):
         item = watchlist.get(MediaType.SHOW, tmdb_id)
         group = numbering_group(item.follow if item is not None else None)
         numbering = await fetch_numbering(torrent, tmdb_id, group)

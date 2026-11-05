@@ -24,8 +24,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- A follow job's season and episode are in release numbering, equal to TMDB
-  numbering for an unmapped show.
+- A season job's scope is read as the release season (what a season search
+  finds); episode jobs stay in TMDB numbering. Both are unchanged for an
+  unmapped show.
+- Rename fails and retries when a show's numbering cannot be read, instead
+  of placing a release code in the wrong season.
+- The first start after upgrading clears follow season pack states once:
+  they were written in TMDB seasons. A parked pack is tried again.
 - medialab-contracts pinned to v1.7.0.
 
 ## [1.12.0] - 2026-11-04

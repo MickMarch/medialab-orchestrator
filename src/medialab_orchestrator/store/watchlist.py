@@ -100,6 +100,8 @@ _ADDED_COLUMNS: dict[str, str] = {
     "last_submitted": "TEXT",
 }
 
+_NUMBERING_COLUMN = "follow_numbering"
+
 # Re-adding refreshes the stored metadata but keeps the original added_at and
 # the follow state, so a repeat add from a second UI neither reorders the list
 # nor drops a follow.
@@ -290,7 +292,7 @@ class WatchlistStore:
         with self._cursor() as cur:
             previous = cur.execute(_SELECT_ITEM, (MediaType.SHOW.value, tmdb_id)).fetchone()
             if previous is not None and (
-                previous["follow_numbering"],
+                previous["follow_numbering"] or NumberingMode.AUTO.value,
                 previous["follow_episode_group"],
             ) != (request.numbering.value, request.episode_group_id):
                 cur.execute(f"DELETE FROM {SEASON_TABLE} WHERE tmdb_id = ?", (tmdb_id,))
@@ -440,6 +442,11 @@ def _migrate(cur: sqlite3.Cursor) -> None:
     for column, definition in _ADDED_COLUMNS.items():
         if column not in present:
             cur.execute(f"ALTER TABLE {WATCHLIST_TABLE} ADD COLUMN {column} {definition}")
+    if present and _NUMBERING_COLUMN not in present:
+        # Season rows written before numbering existed are TMDB seasons; under
+        # auto numbering they may now mean release seasons. Cleared once: a
+        # parked pack is simply tried again.
+        cur.execute(f"DELETE FROM {SEASON_TABLE}")
 
 
 def _require_row(

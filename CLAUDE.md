@@ -129,9 +129,13 @@ Jellyfin recursively scans them and 404s on a sub-path of a registered root.
 - **Two numberings, one layout.** TMDB default (canonical) numbering is the
   library layout, the follow start and the submission key. Release
   numbering, from the show's TMDB episode group (`services/numbering.py`),
-  is what packs, picks and job scopes use; it equals canonical for an
-  unmapped show. Rename maps back to canonical. A numbering read that fails
-  behaves as TMDB numbering. Spec: `docs/specs/anime-numbering.md`.
+  is what packs and picks search with; it equals canonical for an unmapped
+  show. An episode job's scope stays canonical (manual and follow jobs agree);
+  a season job's scope is the release season, which is what a season search
+  finds. Rename maps back to canonical. A failed numbering read behaves as
+  TMDB numbering for reads (browse, poll) and fails the rename step for
+  writes, so a transient error never misfiles a release code. Spec:
+  `docs/specs/anime-numbering.md`.
 - **Discord webhook, not the bot.** `services/notify.py` is the one httpx
   use outside `clients/`: a webhook has no key or error envelope, so the
   downstream client base does not fit. It never raises; no URL, no notice.

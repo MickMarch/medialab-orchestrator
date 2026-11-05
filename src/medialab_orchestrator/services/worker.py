@@ -184,6 +184,14 @@ class PipelineWorker:
             item = self._watchlist.get(MediaType.SHOW, job.tmdb_id)
             group = numbering_group(item.follow if item is not None else None)
             numbering = await fetch_numbering(self._torrent, job.tmdb_id, group)
+            if numbering is None:
+                # Placing without the map could file a release code in the wrong
+                # season for good; fail now and let the retry place it.
+                raise AppException(
+                    status_code=fastapi_status.HTTP_502_BAD_GATEWAY,
+                    code=ErrorCode.DOWNSTREAM_UNAVAILABLE,
+                    detail="Show numbering unavailable; rename deferred.",
+                )
         plan = plan_rename(
             media_type=job.media_type,
             media_root=media_root,

@@ -155,7 +155,7 @@ class TestFollowPoll:
         assert (kwargs["season"], kwargs["episode"], kwargs["absolute"]) == (3, 1, FIRST_OF_LAST)
         assert set(watchlist.submissions(SHOW_ID)) == {(1, FIRST_OF_LAST)}
         job = store.list_jobs_for_title(MediaType.SHOW, SHOW_ID)[0]
-        assert (job.season, job.episode) == (LAST_SEASON, 1)
+        assert (job.season, job.episode) == (1, FIRST_OF_LAST)
 
     async def test_numbering_follows_the_chosen_group(
         self, show, poller: FollowPoller, torrent_client, watchlist: WatchlistStore
@@ -229,14 +229,19 @@ class TestRenameParse:
     def test_maps_to_canonical(self, name: str, expected: tuple[int, list[int]]) -> None:
         assert parse_episode(name, _numbering()) == expected
 
-    def test_identity_numbering_reads_absolute_fansub_names(self) -> None:
+    def test_identity_numbering_leaves_absolute_names_unparsed(self) -> None:
         identity = ShowNumbering(
             tmdb_id=SHOW_ID,
             episodes=[
                 EpisodeNumber(season=2, episode=1, release_season=2, release_episode=1, absolute=13)
             ],
         )
-        assert parse_episode("[Group] Show - 13 (1080p) [ABCD1234].mkv", identity) == (2, [1])
+        with pytest.raises(EpisodeUnparseableError):
+            parse_episode("[Group] Show - 13 (1080p) [ABCD1234].mkv", identity)
+
+    def test_an_unknown_code_on_a_mapped_show_is_unparseable(self) -> None:
+        with pytest.raises(EpisodeUnparseableError):
+            parse_episode("Jujutsu Kaisen S03E09 1080p.mkv", _numbering())
 
     def test_without_numbering_behaviour_is_unchanged(self) -> None:
         assert parse_episode("Show S02E05 720p.mkv") == (2, [5])
@@ -320,3 +325,62 @@ class TestEpisodeGroupsRoute:
         response = app_client.get(f"/api/v1/shows/{SHOW_ID}/episode-groups")
         assert response.status_code == 200
         assert response.json()["auto_group_id"] == GROUP_ID
+
+
+class TestReviewFixes:
+    async def test_a_manual_canonical_episode_job_counts_as_queued(
+        self, show, poller: FollowPoller, torrent_client, store: JobStore, watchlist: WatchlistStore
+    ) -> None:
+        torrent_client.series_episodes.return_value = _listing(unaired={6})
+        store.create_job(
+            release_name="manual", media_type=MediaType.SHOW, tmdb_id=SHOW_ID, season=1, episode=5
+        )
+        submitted = await poller.check_show(watchlist.get(MediaType.SHOW, SHOW_ID))
+        assert submitted == []
+        torrent_client.pick_torrent.assert_not_awaited()
+
+    async def test_a_release_specials_episode_is_never_wanted(
+        self, show, poller: FollowPoller, torrent_client, watchlist: WatchlistStore
+    ) -> None:
+        numbering = _numbering()
+        for number in numbering.episodes:
+            if number.episode >= FIRST_OF_LAST:
+                number.release_season = 0
+        torrent_client.show_numbering.return_value = numbering
+        assert await poller.check_show(watchlist.get(MediaType.SHOW, SHOW_ID)) == []
+        torrent_client.pick_torrent.assert_not_awaited()
+
+    async def test_the_poll_reads_numbering_once(
+        self, show, poller: FollowPoller, torrent_client, watchlist: WatchlistStore
+    ) -> None:
+        torrent_client.show_numbering.side_effect = RuntimeError("down")
+        await poller.check_show(watchlist.get(MediaType.SHOW, SHOW_ID))
+        assert torrent_client.show_numbering.await_count == 1
+
+    def test_a_pre_numbering_follow_keeps_its_season_states_on_resave(
+        self, show, watchlist: WatchlistStore
+    ) -> None:
+        with watchlist._cursor() as cur:
+            cur.execute("UPDATE watchlist_item SET follow_numbering = NULL")
+        watchlist.set_season_mode(SHOW_ID, LAST_SEASON, SeasonFollowMode.PACK_NOT_FOUND, tried=True)
+        watchlist.follow(SHOW_ID, FollowRequest(start=FollowStart(mode=FollowStartMode.BEGINNING)))
+        assert LAST_SEASON in watchlist.season_states(SHOW_ID)
+
+    def test_migration_clears_season_states_once(self, tmp_path) -> None:
+        import sqlite3
+
+        db = tmp_path / "w.db"
+        first = WatchlistStore(db_path=str(db))
+        first.add(MediaType.SHOW, SHOW_ID, WatchlistAddRequest(title=TITLE))
+        first.follow(SHOW_ID, FollowRequest(start=FollowStart(mode=FollowStartMode.BEGINNING)))
+        first.set_season_mode(SHOW_ID, 1, SeasonFollowMode.PACK_NOT_FOUND, tried=True)
+        del first
+        conn = sqlite3.connect(db)
+        conn.execute("ALTER TABLE watchlist_item DROP COLUMN follow_numbering")
+        conn.commit()
+        conn.close()
+        migrated = WatchlistStore(db_path=str(db))
+        assert migrated.season_states(SHOW_ID) == {}
+        migrated.set_season_mode(SHOW_ID, 1, SeasonFollowMode.PACK_NOT_FOUND, tried=True)
+        again = WatchlistStore(db_path=str(db))
+        assert 1 in again.season_states(SHOW_ID)
