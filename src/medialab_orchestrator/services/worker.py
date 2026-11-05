@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import status as fastapi_status
-from medialab_contracts import MEDIA_TYPE_SUBDIRS
+from medialab_contracts import MEDIA_TYPE_SUBDIRS, MediaType
 
 from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClient
 from medialab_orchestrator.core.config import config
@@ -29,6 +29,7 @@ from medialab_orchestrator.services.metadata import (
     parse_release_title_year,
     resolve_title_year,
 )
+from medialab_orchestrator.services.numbering import fetch_numbering, numbering_group
 from medialab_orchestrator.services.rename import (
     EXTRAS_DIR,
     RenameIncompleteError,
@@ -178,6 +179,19 @@ class PipelineWorker:
         root_name = usable_root_name(job.source_path) or job.release_name
         source = await asyncio.to_thread(locate_source, media_root, root_name)
         files = await asyncio.to_thread(list_files, source)
+        numbering = None
+        if job.media_type is MediaType.SHOW and job.tmdb_id != ORPHAN_TMDB_ID:
+            item = self._watchlist.get(MediaType.SHOW, job.tmdb_id)
+            group = numbering_group(item.follow if item is not None else None)
+            numbering = await fetch_numbering(self._torrent, job.tmdb_id, group)
+            if numbering is None:
+                # Placing without the map could file a release code in the wrong
+                # season for good; fail now and let the retry place it.
+                raise AppException(
+                    status_code=fastapi_status.HTTP_502_BAD_GATEWAY,
+                    code=ErrorCode.DOWNSTREAM_UNAVAILABLE,
+                    detail="Show numbering unavailable; rename deferred.",
+                )
         plan = plan_rename(
             media_type=job.media_type,
             media_root=media_root,
@@ -186,6 +200,7 @@ class PipelineWorker:
             year=job.resolved_year or 0,
             files=files,
             source=source,
+            numbering=numbering,
         )
         # A retry after a completed move finds the source gone and the
         # destination present: that is done, not an error. Gone with no

@@ -6,6 +6,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Show numbering (MickMarch/medialab#162): a follow stores `numbering`
+  (`auto`, `tmdb` or `group` with `episode_group_id`) and
+  `prefer_multi_audio`. The follow poll groups packs by release season
+  (`S03` for a TMDB single-season anime), picks an episode by its release
+  code with its absolute number, and passes the audio preference. Changing a
+  follow's numbering clears its season pack states.
+- `GET /shows/{tmdb_id}/episode-groups`: the show's TV episode groups and
+  the auto choice, for the web follow form.
+- The show browse view carries each episode's release code
+  (`release_season`, `release_episode`) when the show's numbering maps it.
+- Rename maps release codes (`S03E01`) and fansub absolute names
+  (`Title - 48 (1080p)`) to TMDB numbering through the show's numbering, so
+  files land where Jellyfin matches them.
+
+### Changed
+
+- A season job's scope is read as the release season (what a season search
+  finds); episode jobs stay in TMDB numbering. Both are unchanged for an
+  unmapped show.
+- Rename fails and retries when a show's numbering cannot be read, instead
+  of placing a release code in the wrong season.
+- The first start after upgrading clears follow season pack states once:
+  they were written in TMDB seasons. A parked pack is tried again.
+- medialab-contracts pinned to v1.7.0.
+
 ## [1.12.0] - 2026-11-04
 
 ### Added

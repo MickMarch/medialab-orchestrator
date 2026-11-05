@@ -11,13 +11,31 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Any
 
-from medialab_contracts import Episode, EpisodeState, MediaType, ShowBrowseResponse
+from medialab_contracts import (
+    Episode,
+    EpisodeState,
+    MediaType,
+    ShowBrowseResponse,
+    ShowNumbering,
+)
 
 from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClient
 from medialab_orchestrator.core.logger import app_logger
 from medialab_orchestrator.services.discover import library_tmdb_ids, watchlist_flags
 from medialab_orchestrator.services.metadata import extract_title_year
+from medialab_orchestrator.services.numbering import (
+    fetch_numbering,
+    numbering_group,
+    release_code,
+)
 from medialab_orchestrator.store import JobStatus, JobStore, PipelineJob, WatchlistStore
+
+
+class NumberingUnread:
+    """Marks a browse whose caller did not read the numbering itself."""
+
+
+NUMBERING_UNREAD = NumberingUnread()
 
 # Jobs no longer heading for the library. FAILED is retryable, so it still
 # counts as queued. Mirrors the health poll's notion.
@@ -31,17 +49,19 @@ _UNKNOWN_YEAR = 0
 EpisodeKeyTuple = tuple[int, int]
 
 
-def job_covers(job: PipelineJob, episode: Episode) -> bool:
+def job_covers(job: PipelineJob, episode: EpisodeState) -> bool:
     """Whether the job's search scope includes this episode: whole series,
-    the episode's season, or the episode itself."""
+    the episode's season, or the episode itself. An episode scope is canonical
+    (what the user or follow wanted); a season scope is the release season,
+    which is what a season search finds. Both equal canonical when unmapped."""
     if job.season is None:
         return True
-    if job.season != episode.season:
-        return False
-    return job.episode is None or job.episode == episode.episode
+    if job.episode is None:
+        return job.season == release_code(episode)[0]
+    return (job.season, job.episode) == (episode.season, episode.episode)
 
 
-def queued_job_id(jobs: list[PipelineJob], episode: Episode) -> str | None:
+def queued_job_id(jobs: list[PipelineJob], episode: EpisodeState) -> str | None:
     """The newest non-terminal job whose scope covers ``episode``."""
     return next(
         (job.id for job in jobs if job.status not in _TERMINAL and job_covers(job, episode)),
@@ -55,13 +75,23 @@ def episode_state(
     today: date,
     in_library: set[EpisodeKeyTuple],
     jobs: list[PipelineJob],
+    numbering: ShowNumbering | None = None,
 ) -> EpisodeState:
-    return EpisodeState(
+    state = EpisodeState(
         **episode.model_dump(),
         aired=episode.air_date is not None and episode.air_date <= today,
         in_library=(episode.season, episode.episode) in in_library,
-        queued_job_id=queued_job_id(jobs, episode),
     )
+    number = (
+        numbering.for_canonical(episode.season, episode.episode)
+        if numbering is not None and numbering.is_mapped
+        else None
+    )
+    if number is not None:
+        state.release_season = number.release_season
+        state.release_episode = number.release_episode
+    state.queued_job_id = queued_job_id(jobs, state)
+    return state
 
 
 async def library_episode_keys(jellyfin: JellyfinClient, tmdb_id: int) -> set[EpisodeKeyTuple]:
@@ -87,8 +117,15 @@ async def browse_show(
     jellyfin: JellyfinClient,
     store: JobStore,
     watchlist: WatchlistStore,
+    numbering: ShowNumbering | None | NumberingUnread = NUMBERING_UNREAD,
 ) -> ShowBrowseResponse:
+    """``numbering`` defaults to the show's, read with its follow's group; a
+    caller that already read it (None for a failed read) passes it through."""
     listing = await torrent.series_episodes(tmdb_id)
+    if isinstance(numbering, NumberingUnread):
+        item = watchlist.get(MediaType.SHOW, tmdb_id)
+        group = numbering_group(item.follow if item is not None else None)
+        numbering = await fetch_numbering(torrent, tmdb_id, group)
     detail = await torrent.tmdb_detail(MediaType.SHOW, tmdb_id)
     title, year = extract_title_year(MediaType.SHOW, detail)
     in_library = await library_episode_keys(jellyfin, tmdb_id)
@@ -103,7 +140,9 @@ async def browse_show(
         status=listing.status,
         seasons=listing.seasons,
         episodes=[
-            episode_state(episode, today=today, in_library=in_library, jobs=jobs)
+            episode_state(
+                episode, today=today, in_library=in_library, jobs=jobs, numbering=numbering
+            )
             for episode in listing.episodes
         ],
         next_episode=listing.next_episode,

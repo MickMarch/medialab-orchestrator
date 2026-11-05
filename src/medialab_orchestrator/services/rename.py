@@ -31,7 +31,7 @@ from pathlib import Path
 
 import PTN
 from fastapi import status as fastapi_status
-from medialab_contracts import STAGING_SUBDIR, MediaType
+from medialab_contracts import STAGING_SUBDIR, MediaType, ShowNumbering
 
 from medialab_orchestrator.core.errors import AppException, ErrorCode
 from medialab_orchestrator.core.logger import app_logger
@@ -42,6 +42,10 @@ EXTRAS_DIR = "extras"
 """Jellyfin lists videos in this subfolder as extras: not as versions of a
 movie, not as episodes of a series."""
 
+MAX_ABSOLUTE_DIGITS = 4
+_ABSOLUTE_EPISODE = re.compile(
+    rf"\s-\s(?P<absolute>\d{{1,{MAX_ABSOLUTE_DIGITS}}})(?:v\d+)?(?=[\s\[(.]|$)"
+)
 _SEASON_DIR_TEMPLATE = "Season {season:02d}"
 _EPISODE_TEMPLATE = "S{season:02d}E{episode:02d}"
 _EPISODE_RANGE_TEMPLATE = "S{season:02d}E{first:02d}-E{last:02d}"
@@ -121,21 +125,59 @@ def title_dir(title: str, year: int) -> str:
     return f"{clean} ({year})" if year > 0 else clean
 
 
-def parse_episode(file_name: str) -> tuple[int, list[int]]:
-    """Season and sorted episode numbers from a file name via PTN.
+def parse_episode(file_name: str, numbering: ShowNumbering | None = None) -> tuple[int, list[int]]:
+    """Canonical season and sorted episode numbers from a file name via PTN.
 
-    Raises ``EpisodeUnparseableError`` when either is missing, so the caller can
-    fail the whole job instead of half-placing a season.
+    With ``numbering``, a release code (``S03E01``) maps to its canonical
+    episode and a fansub name with no season (``Title - 48 (1080p)``) maps by
+    its absolute number. Raises ``EpisodeUnparseableError`` when nothing
+    parses, so the caller can fail the whole job instead of half-placing a
+    season.
     """
     parsed = PTN.parse(file_name)
     season = parsed.get("season")
     episode = parsed.get("episode")
+    if numbering is not None and numbering.is_mapped and season is None:
+        absolute = parse_absolute_episode(file_name)
+        number = numbering.for_absolute(absolute) if absolute is not None else None
+        if number is not None:
+            return number.season, [number.episode]
     if isinstance(season, list) or not isinstance(season, int):
         raise EpisodeUnparseableError(f"No single season number in file name: {file_name!r}")
     episodes = episode if isinstance(episode, list) else [episode]
     if not episodes or not all(isinstance(e, int) for e in episodes):
         raise EpisodeUnparseableError(f"No episode number in file name: {file_name!r}")
+    if numbering is not None:
+        return _to_canonical(numbering, season, sorted(episodes))
     return season, sorted(episodes)
+
+
+def parse_absolute_episode(name: str) -> int | None:
+    """The absolute number of a fansub-style name, or None. Mirrors the
+    downloader's parser (``services/numbering.py`` there); PTN reads these
+    names wrong, taking digits from the trailing CRC."""
+    match = _ABSOLUTE_EPISODE.search(name)
+    return int(match.group("absolute")) if match else None
+
+
+def _to_canonical(
+    numbering: ShowNumbering, season: int, episodes: list[int]
+) -> tuple[int, list[int]]:
+    """A release code -> canonical when every episode maps into one canonical
+    season. For a mapped show a code is read as a release code first (that is
+    how releases are named), then as a canonical one; a code that is neither
+    raises, so the file goes to extras instead of an invented season."""
+    if not numbering.is_mapped:
+        return season, episodes
+    numbers = [numbering.for_release(season, e) for e in episodes]
+    mapped = [n for n in numbers if n is not None]
+    if len(mapped) == len(numbers) and len({n.season for n in mapped}) == 1:
+        return mapped[0].season, sorted(n.episode for n in mapped)
+    if all(numbering.for_canonical(season, e) is not None for e in episodes):
+        return season, episodes
+    raise EpisodeUnparseableError(
+        f"S{season:02d}E{episodes[0]:02d} is neither a release nor a TMDB episode of this show"
+    )
 
 
 EpisodeCode = tuple[int, tuple[int, ...]]
@@ -156,12 +198,12 @@ def _fallback_names(video: Path, source: Path, release_name: str) -> list[str]:
 
 
 def _episode_from_fallback(
-    video: Path, source: Path, release_name: str
+    video: Path, source: Path, release_name: str, numbering: ShowNumbering | None
 ) -> tuple[EpisodeCode, str] | None:
     """The first fallback name that parses, with the code it yields."""
     for name in _fallback_names(video, source, release_name):
         try:
-            season, episodes = parse_episode(name)
+            season, episodes = parse_episode(name, numbering)
         except EpisodeUnparseableError:
             continue
         return (season, tuple(episodes)), name
@@ -206,7 +248,10 @@ def _companions(video: MediaFile, files: Sequence[MediaFile]) -> list[tuple[Medi
 
 
 def _resolve_episodes(
-    videos: Sequence[MediaFile], source: Path, release_name: str
+    videos: Sequence[MediaFile],
+    source: Path,
+    release_name: str,
+    numbering: ShowNumbering | None,
 ) -> tuple[dict[Path, EpisodeCode], list[str]]:
     """Each video's episode code: from its own name, else from a parent folder
     or the release name when no other video claims that code. Videos left
@@ -216,9 +261,9 @@ def _resolve_episodes(
     fallbacks: dict[Path, tuple[EpisodeCode, str]] = {}
     for video in videos:
         try:
-            season, episodes = parse_episode(video.path.name)
+            season, episodes = parse_episode(video.path.name, numbering)
         except EpisodeUnparseableError as exc:
-            found = _episode_from_fallback(video.path, source, release_name)
+            found = _episode_from_fallback(video.path, source, release_name, numbering)
             if found is None:
                 reasons.append(str(exc))
             else:
@@ -249,6 +294,7 @@ def _plan_show(
     files: Sequence[MediaFile],
     source: Path,
     release_name: str,
+    numbering: ShowNumbering | None = None,
 ) -> tuple[Path, list[tuple[Path, Path]], list[Path]]:
     """Episodes into season folders; videos with no episode number into
     ``extras/``. Raises only when nothing parses: that is a badly named pack,
@@ -257,7 +303,7 @@ def _plan_show(
     moves: list[tuple[Path, Path]] = []
     extras: list[Path] = []
     videos = list(filter(_is_video, files))
-    codes, reasons = _resolve_episodes(videos, source, release_name)
+    codes, reasons = _resolve_episodes(videos, source, release_name, numbering)
     for video in videos:
         code = codes.get(video.path)
         if code is None:
@@ -305,11 +351,13 @@ def plan_rename(
     year: int,
     files: Sequence[MediaFile],
     source: Path | None = None,
+    numbering: ShowNumbering | None = None,
 ) -> RenamePlan:
     """Compute every file move for a download without touching the filesystem.
 
     ``source`` defaults to the download folder under staging; the worker passes
     the located folder (staging, or the library root for legacy downloads).
+    ``numbering`` maps a show's release codes and absolute numbers to canonical.
     """
     source = source if source is not None else staging_root(media_root) / release_name
     extras: list[Path] = []
@@ -323,6 +371,7 @@ def plan_rename(
             files=files,
             source=source,
             release_name=release_name,
+            numbering=numbering,
         )
     return RenamePlan(source=source, scan_dir=scan_dir, moves=tuple(moves), extras=tuple(extras))
 
