@@ -26,6 +26,7 @@ from medialab_contracts import (
     MediaType,
     SeasonFollowMode,
     ShowBrowseResponse,
+    ShowNumbering,
     WatchlistItem,
     WatchlistKind,
 )
@@ -39,6 +40,12 @@ from medialab_orchestrator.services.notify import (
     follow_notice,
     pack_not_found_notice,
     post_discord,
+)
+from medialab_orchestrator.services.numbering import (
+    absolute_number,
+    fetch_numbering,
+    numbering_group,
+    release_code,
 )
 from medialab_orchestrator.services.shows import browse_show
 from medialab_orchestrator.store import JobStore, PipelineJob, WatchlistStore
@@ -126,8 +133,33 @@ def is_wanted(
     )
 
 
+def pack_season(episode: EpisodeState) -> int:
+    """The season a pack is searched by: the release season, canonical when unmapped."""
+    return release_code(episode)[0]
+
+
+def _is_mapped(browse: ShowBrowseResponse) -> bool:
+    return any(episode.release_season is not None for episode in browse.episodes)
+
+
 def season_episodes(browse: ShowBrowseResponse, season: int) -> list[EpisodeState]:
-    return [episode for episode in browse.episodes if episode.season == season]
+    """The episodes one pack season covers."""
+    return [episode for episode in browse.episodes if pack_season(episode) == season]
+
+
+def _next_episode_pack_season(browse: ShowBrowseResponse) -> int | None:
+    upcoming = browse.next_episode
+    if upcoming is None:
+        return None
+    match = next(
+        (
+            e
+            for e in browse.episodes
+            if (e.season, e.episode) == (upcoming.season, upcoming.episode)
+        ),
+        None,
+    )
+    return pack_season(match) if match is not None else upcoming.season
 
 
 def pack_eligible(
@@ -148,10 +180,11 @@ def pack_eligible(
     episodes = season_episodes(browse, season)
     if not episodes:
         return False
-    if browse.next_episode is not None and browse.next_episode.season == season:
+    if _next_episode_pack_season(browse) == season:
         return False
+    # TMDB's per-season count is canonical; a release season has no count of its own.
     counted = next((s.episode_count for s in browse.seasons if s.season == season), 0)
-    if counted and len(episodes) < counted:
+    if not _is_mapped(browse) and counted and len(episodes) < counted:
         return False
     return all(
         _aired_long_enough(episode, now=now, delay_hours=delay_hours)
@@ -164,7 +197,7 @@ def pack_eligible(
 
 def _seasons_in_order(wanted: list[EpisodeState]) -> list[int]:
     """Season numbers in the order the wanted episodes (already in air order) reach them."""
-    return list(dict.fromkeys(episode.season for episode in wanted))
+    return list(dict.fromkeys(pack_season(episode) for episode in wanted))
 
 
 def wanted_episodes(
@@ -259,18 +292,27 @@ class FollowPoller:
         now = datetime.now(UTC)
         submitted: list[str] = []
         try:
+            numbering = await fetch_numbering(self._torrent, item.tmdb_id, numbering_group(follow))
             browse = await browse_show(
                 item.tmdb_id,
                 torrent=self._torrent,
                 jellyfin=self._jellyfin,
                 store=self._store,
                 watchlist=self._watchlist,
+                numbering=numbering,
             )
             submissions = self._watchlist.submissions(item.tmdb_id)
             delay_hours = int(config.follow_delay_hours)
             wanted = wanted_episodes(browse, follow, submissions, now=now, delay_hours=delay_hours)
             await self._submit_wanted(
-                browse, follow, wanted, submitted, submissions, now=now, delay_hours=delay_hours
+                browse,
+                follow,
+                wanted,
+                submitted,
+                submissions,
+                numbering,
+                now=now,
+                delay_hours=delay_hours,
             )
         finally:
             self._watchlist.mark_checked(
@@ -285,6 +327,7 @@ class FollowPoller:
         wanted: list[EpisodeState],
         submitted: list[str],
         submissions: Submissions,
+        numbering: ShowNumbering | None,
         *,
         now: datetime,
         delay_hours: int,
@@ -309,11 +352,11 @@ class FollowPoller:
                     await self._try_pack(browse, follow, season, mode, submitted)
                     continue
                 for episode in wanted:
-                    if episode.season != season:
+                    if pack_season(episode) != season:
                         continue
                     if len(submitted) >= cap:
                         return
-                    await self._try_episode(browse, follow, episode, submitted)
+                    await self._try_episode(browse, follow, episode, submitted, numbering)
         except AppException as exc:
             app_logger.warning(
                 "Follow poll: show %d stopped for this tick: %s", browse.tmdb_id, exc.detail
@@ -325,18 +368,23 @@ class FollowPoller:
         follow: FollowState,
         episode: EpisodeState,
         submitted: list[str],
+        numbering: ShowNumbering | None,
     ) -> None:
+        """Searched and scoped by release code; recorded by canonical code."""
+        season, number = release_code(episode)
         result = await self._torrent.pick_torrent(
             browse.title,
-            season=episode.season,
-            episode=episode.episode,
+            season=season,
+            episode=number,
             resolution=follow.resolution,
             min_seeders=int(config.follow_minimum_seeders),
+            absolute=absolute_number(numbering, episode),
+            prefer_multi_audio=follow.prefer_multi_audio,
         )
         if result is None:
             return
-        code = episode_code(episode.season, episode.episode)
-        job = await self._submit(browse, result, season=episode.season, episode=episode.episode)
+        code = episode_code(season, number)
+        job = await self._submit(browse, result, season=season, episode=number)
         self._watchlist.record_submission(browse.tmdb_id, episode.season, episode.episode, job.id)
         await self._announce(browse, code, job)
         submitted.append(code)
@@ -361,6 +409,7 @@ class FollowPoller:
             resolution=follow.resolution,
             min_seeders=profile.min_seeders,
             timeout_seconds=profile.timeout_seconds,
+            prefer_multi_audio=follow.prefer_multi_audio,
         )
         if result is None:
             self._watchlist.set_season_mode(
@@ -374,7 +423,9 @@ class FollowPoller:
             return
         job = await self._submit(browse, result, season=season, episode=None)
         for episode in season_episodes(browse, season):
-            self._watchlist.record_submission(browse.tmdb_id, season, episode.episode, job.id)
+            self._watchlist.record_submission(
+                browse.tmdb_id, episode.season, episode.episode, job.id
+            )
         self._watchlist.set_season_mode(
             browse.tmdb_id, season, SeasonFollowMode.PACK, tried=True, job_id=job.id
         )

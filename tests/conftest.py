@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
+from medialab_contracts import ShowNumbering
 
 from medialab_orchestrator.clients import JellyfinClient, TorrentDownloaderClient
 from medialab_orchestrator.core import auth
@@ -36,7 +37,12 @@ def watchlist() -> WatchlistStore:
 
 @pytest.fixture
 def torrent_client() -> AsyncMock:
-    return AsyncMock(spec=TorrentDownloaderClient)
+    """Numbering defaults to unmapped (TMDB numbering) so only numbering tests see a map."""
+    client = AsyncMock(spec=TorrentDownloaderClient)
+    client.show_numbering.side_effect = lambda tmdb_id, group: ShowNumbering(
+        tmdb_id=tmdb_id, episodes=[]
+    )
+    return client
 
 
 @pytest.fixture

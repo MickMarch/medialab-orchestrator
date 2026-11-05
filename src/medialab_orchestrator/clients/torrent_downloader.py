@@ -10,6 +10,7 @@ from medialab_contracts import (
     GenresResponse,
     MediaType,
     SeriesEpisodesResponse,
+    ShowNumbering,
     TorrentSearchScope,
     VideosResponse,
 )
@@ -42,6 +43,9 @@ def _search_params(query: str, scope: TorrentSearchScope, alt_query: str | None)
     return params
 
 
+_QUERY_TRUE = "true"
+
+
 class TorrentDownloaderClient(DownstreamClient):
     """Wraps the torrent-downloader REST surface the orchestrator depends on."""
 
@@ -71,6 +75,15 @@ class TorrentDownloaderClient(DownstreamClient):
             relay=_DISCOVER_RELAYED,
         )
         return SeriesEpisodesResponse.model_validate(body)
+
+    async def show_numbering(self, tmdb_id: int, group: str) -> ShowNumbering:
+        """The show's map from TMDB numbering to release-season and absolute numbers."""
+        body = await self.request(
+            "GET",
+            f"{API_PREFIX}/search/tmdb/{MediaType.SHOW.value}/{tmdb_id}/numbering",
+            params={"group": group},
+        )
+        return ShowNumbering.model_validate(body)
 
     async def videos(
         self, media_type: MediaType, tmdb_id: int, *, season: int | None = None
@@ -158,12 +171,15 @@ class TorrentDownloaderClient(DownstreamClient):
         season: int | None = None,
         episode: int | None = None,
         timeout_seconds: int | None = None,
+        absolute: int | None = None,
+        prefer_multi_audio: bool = False,
     ) -> Any:
         """The downloader's automatic pick: a movie, one episode, or a season's
         pack when ``episode`` is unset. A bare torrent result, or ``None`` when
         it answers 404 ``NO_CANDIDATE``. ``timeout_seconds`` makes that one
-        search wait longer. Any other failure (qBittorrent down, unreachable)
-        raises as usual."""
+        search wait longer. ``absolute`` also admits fansub names carrying it;
+        ``prefer_multi_audio`` ranks dual audio first. Any other failure
+        (qBittorrent down, unreachable) raises as usual."""
         params: dict[str, Any] = {
             "query": query,
             "media_type": media_type.value,
@@ -176,6 +192,10 @@ class TorrentDownloaderClient(DownstreamClient):
             params["episode"] = episode
         if timeout_seconds is not None:
             params["timeout_seconds"] = timeout_seconds
+        if absolute is not None:
+            params["absolute"] = absolute
+        if prefer_multi_audio:
+            params["prefer_multi_audio"] = _QUERY_TRUE
         return await self.request(
             "GET", f"{API_PREFIX}/search/torrents/pick", params=params, accept=(_NOT_FOUND,)
         )

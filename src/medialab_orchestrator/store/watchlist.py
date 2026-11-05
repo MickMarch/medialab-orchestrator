@@ -24,6 +24,7 @@ from medialab_contracts import (
     FollowStartMode,
     FollowState,
     MediaType,
+    NumberingMode,
     SeasonFollowMode,
     SeasonFollowState,
     SubmissionState,
@@ -53,6 +54,9 @@ CREATE TABLE IF NOT EXISTS {WATCHLIST_TABLE} (
     follow_season     INTEGER,
     follow_episode    INTEGER,
     follow_resolution TEXT,
+    follow_numbering  TEXT,
+    follow_episode_group TEXT,
+    follow_prefer_multi_audio INTEGER NOT NULL DEFAULT 0,
     follow_paused     INTEGER NOT NULL DEFAULT 0,
     followed_at       TEXT,
     last_checked_at   TEXT,
@@ -87,6 +91,9 @@ _ADDED_COLUMNS: dict[str, str] = {
     "follow_season": "INTEGER",
     "follow_episode": "INTEGER",
     "follow_resolution": "TEXT",
+    "follow_numbering": "TEXT",
+    "follow_episode_group": "TEXT",
+    "follow_prefer_multi_audio": "INTEGER NOT NULL DEFAULT 0",
     "follow_paused": "INTEGER NOT NULL DEFAULT 0",
     "followed_at": "TEXT",
     "last_checked_at": "TEXT",
@@ -112,14 +119,16 @@ _SELECT_ITEM = f"SELECT * FROM {WATCHLIST_TABLE} WHERE media_type = ? AND tmdb_i
 _FOLLOW = f"""
 UPDATE {WATCHLIST_TABLE} SET
     kind = ?, follow_mode = ?, follow_season = ?, follow_episode = ?,
-    follow_resolution = ?, follow_paused = 0, followed_at = ?
+    follow_resolution = ?, follow_numbering = ?, follow_episode_group = ?,
+    follow_prefer_multi_audio = ?, follow_paused = 0, followed_at = ?
 WHERE media_type = ? AND tmdb_id = ?
 """
 
 _UNFOLLOW = f"""
 UPDATE {WATCHLIST_TABLE} SET
     kind = ?, follow_mode = NULL, follow_season = NULL, follow_episode = NULL,
-    follow_resolution = NULL, follow_paused = 0, followed_at = NULL,
+    follow_resolution = NULL, follow_numbering = NULL, follow_episode_group = NULL,
+    follow_prefer_multi_audio = 0, follow_paused = 0, followed_at = NULL,
     last_checked_at = NULL, last_submitted = NULL
 WHERE media_type = ? AND tmdb_id = ?
 """
@@ -274,9 +283,17 @@ class WatchlistStore:
     # Follows (shows only)
 
     def follow(self, tmdb_id: int, request: FollowRequest) -> WatchlistItem:
-        """Turn the saved show into a follow: stores the start and resolution,
-        stamps ``followed_at`` now and unpauses. Repeatable; the row must exist."""
+        """Turn the saved show into a follow: stores the start, resolution,
+        numbering and audio preference, stamps ``followed_at`` now and unpauses.
+        Repeatable; the row must exist. A changed numbering clears the show's
+        season states, whose season numbers then mean other episodes."""
         with self._cursor() as cur:
+            previous = cur.execute(_SELECT_ITEM, (MediaType.SHOW.value, tmdb_id)).fetchone()
+            if previous is not None and (
+                previous["follow_numbering"],
+                previous["follow_episode_group"],
+            ) != (request.numbering.value, request.episode_group_id):
+                cur.execute(f"DELETE FROM {SEASON_TABLE} WHERE tmdb_id = ?", (tmdb_id,))
             cur.execute(
                 _FOLLOW,
                 (
@@ -285,6 +302,9 @@ class WatchlistStore:
                     request.start.season,
                     request.start.episode,
                     request.resolution,
+                    request.numbering.value,
+                    request.episode_group_id,
+                    int(request.prefer_multi_audio),
                     _now(),
                     MediaType.SHOW.value,
                     tmdb_id,
@@ -446,6 +466,9 @@ def _row_to_follow(row: sqlite3.Row) -> FollowState | None:
             episode=row["follow_episode"],
         ),
         resolution=row["follow_resolution"],
+        numbering=NumberingMode(row["follow_numbering"] or NumberingMode.AUTO.value),
+        episode_group_id=row["follow_episode_group"],
+        prefer_multi_audio=bool(row["follow_prefer_multi_audio"]),
         paused=bool(row["follow_paused"]),
         followed_at=datetime.fromisoformat(row["followed_at"]),
         last_checked_at=_optional_timestamp(row["last_checked_at"]),

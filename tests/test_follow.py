@@ -269,7 +269,13 @@ class TestTick:
     ):
         await poller.tick()
         torrent_client.pick_torrent.assert_any_await(
-            TITLE, season=1, episode=1, resolution=RESOLUTION, min_seeders=MIN_SEEDERS
+            TITLE,
+            season=1,
+            episode=1,
+            resolution=RESOLUTION,
+            min_seeders=MIN_SEEDERS,
+            absolute=None,
+            prefer_multi_audio=False,
         )
 
     async def test_an_airing_season_never_asks_for_a_pack(
