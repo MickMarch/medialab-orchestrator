@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-11-05
+
 ### Added
 
 - Show numbering (MickMarch/medialab#162): a follow stores `numbering`
