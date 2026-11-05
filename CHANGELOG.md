@@ -14,6 +14,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`S03` for a TMDB single-season anime), picks an episode by its release
   code with its absolute number, and passes the audio preference. Changing a
   follow's numbering clears its season pack states.
+- `GET /shows/{tmdb_id}/episode-groups`: the show's TV episode groups and
+  the auto choice, for the web follow form.
 - The show browse view carries each episode's release code
   (`release_season`, `release_episode`) when the show's numbering maps it.
 - Rename maps release codes (`S03E01`) and fansub absolute names

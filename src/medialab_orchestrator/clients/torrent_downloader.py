@@ -7,6 +7,7 @@ from typing import Any
 from medialab_contracts import (
     API_PREFIX,
     DiscoverResponse,
+    EpisodeGroupsResponse,
     GenresResponse,
     MediaType,
     SeriesEpisodesResponse,
@@ -75,6 +76,13 @@ class TorrentDownloaderClient(DownstreamClient):
             relay=_DISCOVER_RELAYED,
         )
         return SeriesEpisodesResponse.model_validate(body)
+
+    async def episode_groups(self, tmdb_id: int) -> EpisodeGroupsResponse:
+        body = await self.get(
+            f"{API_PREFIX}/search/tmdb/{MediaType.SHOW.value}/{tmdb_id}/episode-groups",
+            relay=_DISCOVER_RELAYED,
+        )
+        return EpisodeGroupsResponse.model_validate(body)
 
     async def show_numbering(self, tmdb_id: int, group: str) -> ShowNumbering:
         """The show's map from TMDB numbering to release-season and absolute numbers."""

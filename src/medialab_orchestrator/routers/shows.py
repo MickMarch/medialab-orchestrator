@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from fastapi import status as fastapi_status
-from medialab_contracts import ShowBrowseResponse
+from medialab_contracts import EpisodeGroupsResponse, ShowBrowseResponse
 
 from medialab_orchestrator.core.deps import AppContext, get_context
 from medialab_orchestrator.core.limiter import RATE_LIMIT_SEARCH, limiter
@@ -40,3 +40,18 @@ async def get_show(
         store=ctx.store,
         watchlist=ctx.watchlist,
     )
+
+
+@router.get(
+    "/{tmdb_id}/episode-groups",
+    response_model=EpisodeGroupsResponse,
+    status_code=fastapi_status.HTTP_200_OK,
+    summary="A show's TMDB episode groups of type TV and the one auto numbering uses.",
+    responses=_SHOWS_ERROR_RESPONSES,
+)
+@limiter.limit(RATE_LIMIT_SEARCH)
+async def get_episode_groups(
+    request: Request, tmdb_id: int, ctx: AppContext = Depends(get_context)
+) -> EpisodeGroupsResponse:
+    """Proxied to torrent-downloader; the follow form lists these as numberings."""
+    return await ctx.torrent.episode_groups(tmdb_id)

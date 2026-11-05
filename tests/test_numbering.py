@@ -305,3 +305,18 @@ class TestClient:
         args = request.await_args
         assert args.args == ("GET", f"/api/v1/search/tmdb/show/{SHOW_ID}/numbering")
         assert args.kwargs["params"] == {"group": GROUP_ID}
+
+
+class TestEpisodeGroupsRoute:
+    def test_proxies_the_downloader(self, app_client, torrent_client) -> None:
+        from medialab_contracts import EpisodeGroupInfo, EpisodeGroupsResponse
+
+        groups = EpisodeGroupsResponse(
+            tmdb_id=SHOW_ID,
+            groups=[EpisodeGroupInfo(id=GROUP_ID, name="Seasons", group_count=3, episode_count=6)],
+            auto_group_id=GROUP_ID,
+        )
+        torrent_client.episode_groups.return_value = groups
+        response = app_client.get(f"/api/v1/shows/{SHOW_ID}/episode-groups")
+        assert response.status_code == 200
+        assert response.json()["auto_group_id"] == GROUP_ID
