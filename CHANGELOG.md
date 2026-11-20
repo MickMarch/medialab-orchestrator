@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-11-20
+
 ### Fixed
 
 - Rename reads an episode code with a release version (`S03E01v2`); PTN
