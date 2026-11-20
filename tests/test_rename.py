@@ -65,6 +65,8 @@ class TestParseEpisode:
             ("Show.Name.S01E01-E02.1080p.mkv", 1, [1, 2]),
             ("show.name.s00e05.special.mkv", 0, [5]),
             ("Show (2019) - S10E12 - Finale.mkv", 10, [12]),
+            ("[Judas] JUJUTSU KAISEN - S03E01v2.mkv", 3, [1]),
+            ("Show.Name.S01E02v3.1080p.mkv", 1, [2]),
         ],
     )
     def test_parses(self, name: str, season: int, episodes: list[int]):
