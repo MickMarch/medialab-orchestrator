@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Rename reads an episode code with a release version (`S03E01v2`); PTN
+  lost the season on these names and failed the whole pack
+  (MickMarch/medialab#167).
+
 ## [1.13.0] - 2026-11-05
 
 ### Added

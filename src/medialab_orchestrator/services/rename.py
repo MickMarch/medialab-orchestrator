@@ -46,6 +46,9 @@ MAX_ABSOLUTE_DIGITS = 4
 _ABSOLUTE_EPISODE = re.compile(
     rf"\s-\s(?P<absolute>\d{{1,{MAX_ABSOLUTE_DIGITS}}})(?:v\d+)?(?=[\s\[(.]|$)"
 )
+# A release version after an episode code ("S03E01v2") hides the season from
+# PTN; the version says nothing about which episode it is, so it is dropped.
+_RELEASE_VERSION = re.compile(r"(?i)\b(S\d+E\d+)v\d+\b")
 _SEASON_DIR_TEMPLATE = "Season {season:02d}"
 _EPISODE_TEMPLATE = "S{season:02d}E{episode:02d}"
 _EPISODE_RANGE_TEMPLATE = "S{season:02d}E{first:02d}-E{last:02d}"
@@ -134,7 +137,7 @@ def parse_episode(file_name: str, numbering: ShowNumbering | None = None) -> tup
     parses, so the caller can fail the whole job instead of half-placing a
     season.
     """
-    parsed = PTN.parse(file_name)
+    parsed = PTN.parse(_RELEASE_VERSION.sub(r"\1", file_name))
     season = parsed.get("season")
     episode = parsed.get("episode")
     if numbering is not None and numbering.is_mapped and season is None:
