@@ -39,6 +39,8 @@ WATCHLIST_TABLE = "watchlist_item"
 LEGACY_WATCHLIST_TABLE = "wishlist_item"
 SUBMISSION_TABLE = "follow_submission"
 SEASON_TABLE = "follow_season"
+# Held the Jellyfin in-app requests removed with the Discover libraries.
+RETIRED_REQUEST_TABLE = "jellyfin_request"
 
 _SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS {WATCHLIST_TABLE} (
@@ -430,13 +432,14 @@ class WatchlistStore:
 
 
 def _migrate(cur: sqlite3.Cursor) -> None:
-    """Rename the pre-watchlist table when only it exists, create what is
-    missing, then add the follow columns an older table lacks."""
+    """Rename the pre-watchlist table when only it exists, drop retired tables,
+    create what is missing, then add the follow columns an older table lacks."""
     tables = {
         row["name"] for row in cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
     if LEGACY_WATCHLIST_TABLE in tables and WATCHLIST_TABLE not in tables:
         cur.execute(f"ALTER TABLE {LEGACY_WATCHLIST_TABLE} RENAME TO {WATCHLIST_TABLE}")
+    cur.execute(f"DROP TABLE IF EXISTS {RETIRED_REQUEST_TABLE}")
     cur.executescript(_SCHEMA)
     present = {row["name"] for row in cur.execute(f"PRAGMA table_info({WATCHLIST_TABLE})")}
     for column, definition in _ADDED_COLUMNS.items():

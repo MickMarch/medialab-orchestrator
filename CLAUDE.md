@@ -102,10 +102,6 @@ Jellyfin recursively scans them and 404s on a sub-path of a registered root.
 - **Keyed webhook.** `POST /webhooks/torrent-complete` requires the gateway
   `X-API-Key` like everything else; localhost inside the compose network is
   not a trust boundary. Returns `202` immediately, never blocks qBittorrent.
-- **Jellyfin events have their own secret.** `POST /jellyfin/events` is the one
-  route outside the gateway key: the Webhook plugin sends
-  `JELLYFIN_WEBHOOK_SECRET` in `X-Medialab-Webhook-Secret`, compared in
-  constant time. It never reads the body; it only wakes the request poll.
 - **Standalone relay.** `scripts/notify_complete.py` is stdlib-only (`urllib`,
   no package imports) so the same file runs on the host today and inside a
   qBittorrent container later.
@@ -159,8 +155,8 @@ src/medialab_orchestrator/
 ├── store/       jobs (JobStatus, PipelineJob, JobStore over sqlite3),
 │                watchlist (WatchlistStore, same DB file: watchlist_item, renamed from
 │                wishlist_item at startup, plus follow_submission keyed by show, season, episode,
-│                and follow_season: the per-season pack mode of a follow),
-│                requests (RequestStore: jellyfin_request, one row per requested title)
+│                and follow_season: the per-season pack mode of a follow; drops the retired
+│                jellyfin_request table at startup)
 ├── services/    worker (asyncio pipeline), health_poll (periodic remediation), credentials (per-key
 │                health aggregation, transition notices, JSON ledger), deletion (undo a
 │                download: plan + execute), download (the submit path shared by
@@ -171,22 +167,18 @@ src/medialab_orchestrator/
 │                discover (watchlist kind + best-effort library annotation),
 │                shows (episodes joined with library presence and queued jobs),
 │                follow (wanted_episodes + FollowPoller: pick and auto-submit per follow),
-│                discover_reconcile (desired Discover placeholders + DiscoverReconciler),
 │                numbering (a show's ShowNumbering from the downloader, the follow's
 │                group, release codes),
-│                requests (RequestPoller: Discover favorites -> movie picks and show
-│                follows, derived placeholder state),
 │                notify (Discord webhook notice; the one httpx use outside clients/)
 ├── routers/     system (/health), search (proxies), discover (annotated proxies), shows, watchlist
 │                (saved titles, follow / unfollow / pause / resume / check, the episode view
 │                with submitted + wanted, Retry),
 │                settings (suite settings, local + relayed),
 │                gateway (download/transfers/jobs/storage),
-│                webhooks (torrent-complete), jellyfin_events (Webhook plugin
-│                wake-up for the request poll; own secret header, no API key)
+│                webhooks (torrent-complete)
 ├── schemas/     jobs, errors, watchlist (FollowCheckResponse)
 ├── scripts/     notify_complete.py (standalone relay)
-└── main.py      app, lifespan (health, follow, Discover and request loops), middleware, exception handlers,
+└── main.py      app, lifespan (health, follow and credential loops), middleware, exception handlers,
                  routers under /api/v1
 ```
 

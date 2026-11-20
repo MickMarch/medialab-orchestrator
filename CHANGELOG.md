@@ -6,6 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- **Breaking:** the Jellyfin Discover libraries and in-app requests
+  (MickMarch/medialab#168). `POST /jellyfin/events` is gone (now `404`), as
+  are the Discover reconcile and request loops, the `jellyfin_request` store
+  and the Discover placeholder and favorites calls to medialab-jellyfin.
+- **Breaking:** config and runtime settings `jellyfin_request_users`,
+  `discover_refresh_seconds`, `discover_poll_seconds`,
+  `discover_recommendations_per_title`, `jellyfin_request_retry_hours`,
+  `jellyfin_request_resolution` and `JELLYFIN_WEBHOOK_SECRET`. Remove them
+  from a local `.env`: the config rejects unknown keys in that file.
+- The `released` flag of the torrent-downloader discover call and the
+  recommendations call, which only the reconcile used.
+
+### Changed
+
+- Startup drops the `jellyfin_request` table if it exists; watchlist entries
+  a request created stay as ordinary saved or followed entries.
+
 ## [1.13.1] - 2026-11-20
 
 ### Fixed

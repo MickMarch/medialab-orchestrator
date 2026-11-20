@@ -19,7 +19,11 @@ from medialab_contracts import (
 )
 
 from medialab_orchestrator.store import JobStore, WatchlistItemNotFoundError, WatchlistStore
-from medialab_orchestrator.store.watchlist import LEGACY_WATCHLIST_TABLE, WATCHLIST_TABLE
+from medialab_orchestrator.store.watchlist import (
+    LEGACY_WATCHLIST_TABLE,
+    RETIRED_REQUEST_TABLE,
+    WATCHLIST_TABLE,
+)
 
 DUNE_ID = 438631
 SHOW_ID = 1396
@@ -379,6 +383,24 @@ class TestSchema:
         assert jobs.get_job_by_id(job.id).tmdb_id == DUNE_ID
         assert len(watchlist.list()) == 1
         assert {"pipeline_job", WATCHLIST_TABLE, "follow_submission"} <= _tables(db_path)
+
+    def test_retired_request_table_is_dropped_and_watchlist_rows_kept(self, tmp_path: Path):
+        db_path = str(tmp_path / "orchestrator.db")
+        WatchlistStore(db_path=db_path).add(MediaType.MOVIE, DUNE_ID, _request())
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(f"CREATE TABLE {RETIRED_REQUEST_TABLE} (tmdb_id INTEGER NOT NULL)")
+            conn.execute(f"INSERT INTO {RETIRED_REQUEST_TABLE} (tmdb_id) VALUES (?)", (DUNE_ID,))
+
+        watchlist = WatchlistStore(db_path=db_path)
+
+        assert RETIRED_REQUEST_TABLE not in _tables(db_path)
+        assert [item.tmdb_id for item in watchlist.list()] == [DUNE_ID]
+
+    def test_startup_without_the_retired_request_table_is_a_noop(self, tmp_path: Path):
+        db_path = str(tmp_path / "orchestrator.db")
+        WatchlistStore(db_path=db_path)
+        WatchlistStore(db_path=db_path)
+        assert RETIRED_REQUEST_TABLE not in _tables(db_path)
 
 
 class TestSeasonStates:
