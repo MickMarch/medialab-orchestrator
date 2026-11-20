@@ -25,7 +25,6 @@ from medialab_orchestrator.routers import (
     credentials,
     discover,
     gateway,
-    jellyfin_events,
     search,
     settings,
     shows,
@@ -50,15 +49,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         tasks.append(asyncio.create_task(context.credentials.run()))
         app_logger.info("Credential health on the health poll cadence.")
     app_logger.info("Follow poll every %ds (0 pauses).", config.follow_poll_interval_seconds)
-    if context.discover_reconciler is not None:
-        tasks.append(asyncio.create_task(context.discover_reconciler.run()))
-        app_logger.info(
-            "Discover reconcile at startup, then every %ds (0 pauses).",
-            config.discover_refresh_seconds,
-        )
-    if context.request_poller is not None:
-        tasks.append(asyncio.create_task(context.request_poller.run()))
-        app_logger.info("Jellyfin request poll every %ds (0 pauses).", config.discover_poll_seconds)
     try:
         yield
     finally:
@@ -145,8 +135,6 @@ app.include_router(watchlist.router, prefix=API_PREFIX, dependencies=[Depends(ve
 app.include_router(gateway.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(settings.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 app.include_router(webhooks.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
-# Keyed by its own shared secret header, not the gateway API key.
-app.include_router(jellyfin_events.router, prefix=API_PREFIX)
 app.include_router(credentials.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
 
 

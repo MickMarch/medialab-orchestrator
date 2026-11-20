@@ -73,7 +73,6 @@ All paths under `/api/v1`. Every endpoint except `/health` requires
 | `PUT` | `/settings/{service}/{key}` | Override one setting (`{"value": ...}`) on the named service; `404` unknown service or key, `422` out of bounds. |
 | `DELETE` | `/settings/{service}/{key}` | Drop the override. |
 | `POST` | `/transfers/stop-seeding` | Proxy to torrent-downloader: pause every seeding (completed) torrent, never an in-progress download. `202`. No job involved. |
-| `POST` | `/jellyfin/events` | Jellyfin Webhook plugin event. Not behind the gateway key: needs `X-Medialab-Webhook-Secret` equal to `JELLYFIN_WEBHOOK_SECRET` (constant-time; unset rejects all, `403 UNAUTHORIZED`). The body is not read; a valid event wakes the request poll and returns `202`. |
 | `POST` | `/webhooks/torrent-complete` | Body `{hash, name}`, sent by the completion relay. Matches the job by hash (or orphan-inserts), advances it off the request thread, returns `202`. |
 
 Errors: `{"status": "error", "code": "<ErrorCode>", "detail": "..."}`. Every
@@ -99,55 +98,6 @@ tick of the loop it tunes.
 | `follow_pack_timeout_seconds` | 5 to 120 | 30 | Search timeout for a season pack pick. |
 | `follow_pack_retry_timeout_seconds` | 5 to 120 | 90 | Timeout when the user retries a missing pack with a longer search. |
 | `follow_pack_retry_minimum_seeders` | 0 to 1000 | 5 | Seeder floor when the user retries a missing pack with fewer seeders. |
-| `jellyfin_request_users` | comma-separated ids | empty | Jellyfin user ids allowed to request from Discover; empty (the default, and what reset returns to) allows nobody. |
-| `discover_refresh_seconds` | 0 to 604800 | 21600 | Seconds between Discover placeholder refreshes; 0 pauses them. |
-| `discover_poll_seconds` | 0 to 3600 | 30 | Seconds between Discover favorites polls; 0 pauses requests. |
-| `discover_recommendations_per_title` | 0 to 20 | 5 | Recommendations added to Discover per favorited library title. |
-| `jellyfin_request_retry_hours` | 1 to 168 | 12 | Hours before a request with nothing found is picked again. |
-| `jellyfin_request_resolution` | `4K`, `1080p`, `720p` | `1080p` | Resolution a request picks at, and a show request follows at. Whether a pick may go lower is torrent-downloader's `pick_resolution_fallback`. |
-
-## Discover reconcile
-
-`services/discover_reconcile.py` keeps the Jellyfin Discover placeholders in
-step with what is worth requesting. It runs once at startup, then every
-`discover_refresh_seconds` (0 pauses it). The desired set is the watchlist,
-the released popular titles of each type, and the released recommendations
-(`discover_recommendations_per_title` each) for every real-library title a
-`jellyfin_request_users` user favorited, minus the library. Missing titles are
-written as `available` placeholders, stale `available` ones removed, then each
-changed Discover library is refreshed once. A placeholder in any other state
-belongs to a request and is never removed. When any source fails (TMDB down,
-favorites unreadable) the pass only adds; a failed library or placeholder read
-skips the pass. Spec: `docs/specs/jellyfin-in-app-requests.md` in the
-workspace.
-
-## Jellyfin requests
-
-`services/requests.py` turns a favorite on a Discover placeholder into a
-download. Every `discover_poll_seconds` (0 pauses it) it reads the Discover
-favorites of each `jellyfin_request_users` user, files a request per newly
-favorited title in `jellyfin_request` (same DB, keyed by media type and TMDB
-id, canonical title and year from TMDB), and acts:
-
-- **Movie:** saved to the watchlist, then the downloader's automatic movie
-  pick (no cams) is submitted as an ordinary job. Nothing found is
-  `not_found`, picked again every `jellyfin_request_retry_hours`; a movie
-  whose every job was deleted or dismissed goes back to `not_found`.
-- **Show:** saved and followed from the beginning (an existing follow is
-  kept), checked at once; the follow poll then fetches a pack per complete
-  season and single episodes for the rest.
-
-With the Jellyfin Webhook plugin pointed at `POST /jellyfin/events`, a
-favorite is picked up within `WAKE_SETTLE_SECONDS` (2) instead of up to
-`discover_poll_seconds`: the event only wakes the poll, so a burst of events
-is one tick and a webhook and a poll never file a title twice.
-
-Dropping the favorite before anything was submitted cancels the request once
-its last requester has left, and the placeholder returns to `available`.
-Each tick derives the placeholder state (`requested`, `downloading` while a
-job for the title is between `DOWNLOAD_SUBMITTED` and `SCAN`, `not_found`)
-and rewrites it only on change. A request closes, and its placeholder is
-removed, when the title reaches the library.
 
 ## Follow poll and the Discord notice
 

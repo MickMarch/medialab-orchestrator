@@ -8,13 +8,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
-from medialab_contracts import DEFAULT_FOLLOW_RESOLUTION, PICK_RESOLUTIONS, SettingSource
+from medialab_contracts import SettingSource
 
 from medialab_orchestrator.core.config import AppConfig
 from medialab_orchestrator.core.settings import RuntimeSettings, SettingsStore, UnknownSettingError
 from medialab_orchestrator.routers import settings as settings_router
 from medialab_orchestrator.services import health_poll
 from medialab_orchestrator.services.health_poll import HealthPoller
+
+REMOVED_KEY_PREFIXES = ("discover_", "jellyfin_request_")
 
 
 def _runtime(tmp_path: Path, **env) -> tuple[AppConfig, RuntimeSettings, Path]:
@@ -38,18 +40,7 @@ class TestEngine:
             "follow_pack_timeout_seconds",
             "follow_pack_retry_timeout_seconds",
             "follow_pack_retry_minimum_seeders",
-            "jellyfin_request_users",
-            "discover_refresh_seconds",
-            "discover_poll_seconds",
-            "discover_recommendations_per_title",
-            "jellyfin_request_retry_hours",
-            "jellyfin_request_resolution",
         ]
-        assert rt.view("jellyfin_request_users").value == ""
-        assert rt.view("discover_refresh_seconds").value == 21600
-        assert rt.view("discover_poll_seconds").value == 30
-        assert rt.view("discover_recommendations_per_title").value == 5
-        assert rt.view("jellyfin_request_retry_hours").value == 12
         follow_interval = rt.view("follow_poll_interval_seconds")
         assert (follow_interval.value, follow_interval.min, follow_interval.max) == (
             21600,
@@ -210,35 +201,15 @@ class TestGateway:
         assert unauthed_client.get("/api/v1/settings").status_code == 403
 
 
-class TestJellyfinRequestUsers:
-    def test_empty_means_nobody(self) -> None:
-        assert AppConfig(_env_file=None).jellyfin_request_user_ids == frozenset()
+class TestDiscoverSettingsRemoved:
+    def test_listing_has_no_discover_or_request_key(self, tmp_path: Path) -> None:
+        _, rt, _ = _runtime(tmp_path)
+        removed = [view.key for view in rt.views() if view.key.startswith(REMOVED_KEY_PREFIXES)]
+        assert removed == []
 
-    def test_parses_and_trims(self) -> None:
-        cfg = AppConfig(_env_file=None, jellyfin_request_users=" abc , ,def")
-        assert cfg.jellyfin_request_user_ids == frozenset({"abc", "def"})
-
-    def test_set_then_reset_returns_to_nobody(self, tmp_path: Path) -> None:
-        cfg, rt, _ = _runtime(tmp_path)
-        rt.set("jellyfin_request_users", "abc,def")
-        assert cfg.jellyfin_request_user_ids == frozenset({"abc", "def"})
-        rt.reset("jellyfin_request_users")
-        assert cfg.jellyfin_request_user_ids == frozenset()
-
-
-class TestJellyfinRequestResolution:
-    def test_defaults_to_the_follow_default_with_the_pick_choices(self, tmp_path: Path) -> None:
-        cfg, rt, _ = _runtime(tmp_path)
-        assert cfg.jellyfin_request_resolution == DEFAULT_FOLLOW_RESOLUTION
-        assert rt.view("jellyfin_request_resolution").choices == list(PICK_RESOLUTIONS)
-
-    def test_set_keeps_the_declared_spelling(self, tmp_path: Path) -> None:
-        cfg, rt, _ = _runtime(tmp_path)
-        rt.set("jellyfin_request_resolution", "4k")
-        assert cfg.jellyfin_request_resolution == "4K"
-
-    def test_rejects_a_resolution_outside_the_choices(self, tmp_path: Path) -> None:
-        cfg, rt, _ = _runtime(tmp_path)
-        with pytest.raises(ValueError, match="one of"):
-            rt.set("jellyfin_request_resolution", "480p")
-        assert cfg.jellyfin_request_resolution == DEFAULT_FOLLOW_RESOLUTION
+    def test_stored_override_for_a_removed_key_is_ignored(self, tmp_path: Path) -> None:
+        path = tmp_path / "settings.json"
+        path.write_text(json.dumps({"discover_poll_seconds": 5}), encoding="utf-8")
+        rt = RuntimeSettings(AppConfig(_env_file=None), SettingsStore(path))
+        with pytest.raises(UnknownSettingError):
+            rt.view("discover_poll_seconds")

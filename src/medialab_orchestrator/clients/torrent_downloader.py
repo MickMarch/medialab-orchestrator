@@ -110,39 +110,15 @@ class TorrentDownloaderClient(DownstreamClient):
         *,
         genre: int | None = None,
         page: int | None = None,
-        released: bool = False,
     ) -> DiscoverResponse:
-        """Trending or genre titles; ``released`` keeps only titles out at home."""
+        """Trending or genre titles."""
         params: dict[str, Any] = {}
         if genre is not None:
             params["genre"] = genre
         if page is not None:
             params["page"] = page
-        if released:
-            params["released"] = True
         body = await self.get(
             f"{API_PREFIX}/discover/{media_type.value}", params=params, relay=_DISCOVER_RELAYED
-        )
-        return DiscoverResponse.model_validate(body)
-
-    async def recommendations(
-        self,
-        media_type: MediaType,
-        tmdb_id: int,
-        *,
-        released: bool = False,
-        limit: int | None = None,
-    ) -> DiscoverResponse:
-        """TMDB's recommendations for one title, in its order."""
-        params: dict[str, Any] = {}
-        if released:
-            params["released"] = True
-        if limit is not None:
-            params["limit"] = limit
-        body = await self.get(
-            f"{API_PREFIX}/discover/{media_type.value}/recommendations/{tmdb_id}",
-            params=params,
-            relay=_DISCOVER_RELAYED,
         )
         return DiscoverResponse.model_validate(body)
 

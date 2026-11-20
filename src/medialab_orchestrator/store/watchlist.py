@@ -33,12 +33,18 @@ from medialab_contracts import (
     WatchlistKind,
 )
 
+from medialab_orchestrator.core.logger import app_logger
+
 _IN_MEMORY = ":memory:"
 
 WATCHLIST_TABLE = "watchlist_item"
 LEGACY_WATCHLIST_TABLE = "wishlist_item"
 SUBMISSION_TABLE = "follow_submission"
 SEASON_TABLE = "follow_season"
+# Held the Jellyfin in-app requests removed with the Discover libraries.
+RETIRED_REQUEST_TABLE = "jellyfin_request"
+# Request statuses that had filed no job or follow yet; these carry over as saved titles.
+_UNFILED_REQUEST_STATUSES = ("requested", "not_found")
 
 _SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS {WATCHLIST_TABLE} (
@@ -431,7 +437,8 @@ class WatchlistStore:
 
 def _migrate(cur: sqlite3.Cursor) -> None:
     """Rename the pre-watchlist table when only it exists, create what is
-    missing, then add the follow columns an older table lacks."""
+    missing, add the follow columns an older table lacks, then retire the
+    request table."""
     tables = {
         row["name"] for row in cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     }
@@ -447,6 +454,34 @@ def _migrate(cur: sqlite3.Cursor) -> None:
         # auto numbering they may now mean release seasons. Cleared once: a
         # parked pack is simply tried again.
         cur.execute(f"DELETE FROM {SEASON_TABLE}")
+    if RETIRED_REQUEST_TABLE in tables:
+        _carry_over_requests(cur)
+        cur.execute(f"DROP TABLE {RETIRED_REQUEST_TABLE}")
+
+
+def _carry_over_requests(cur: sqlite3.Cursor) -> None:
+    """Save each open request that filed nothing yet; a title already on the
+    watchlist is left as it is. Shows are saved, not followed."""
+    placeholders = ", ".join("?" for _ in _UNFILED_REQUEST_STATUSES)
+    rows = cur.execute(
+        f"SELECT media_type, tmdb_id, title, year FROM {RETIRED_REQUEST_TABLE} "
+        f"WHERE status IN ({placeholders})",
+        _UNFILED_REQUEST_STATUSES,
+    ).fetchall()
+    for row in rows:
+        year = None if row["year"] is None else str(row["year"])
+        cur.execute(
+            f"INSERT INTO {WATCHLIST_TABLE} (tmdb_id, media_type, title, year, added_at) "
+            "VALUES (?, ?, ?, ?, ?) ON CONFLICT (media_type, tmdb_id) DO NOTHING",
+            (row["tmdb_id"], row["media_type"], row["title"], year, _now()),
+        )
+        if cur.rowcount:
+            app_logger.info(
+                "Retired Jellyfin request saved to the watchlist: %s %s (%s).",
+                row["media_type"],
+                row["tmdb_id"],
+                row["title"],
+            )
 
 
 def _require_row(
