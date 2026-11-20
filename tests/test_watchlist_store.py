@@ -44,6 +44,30 @@ CREATE TABLE {LEGACY_WATCHLIST_TABLE} (
 );
 """
 
+HEAT_ID = 949
+HEAT_YEAR = 1995
+REQUEST_STATUS_REQUESTED = "requested"
+REQUEST_STATUS_SUBMITTED = "submitted"
+REQUEST_STATUS_NOT_FOUND = "not_found"
+REQUEST_STATUS_CLOSED = "closed"
+REQUEST_STATUS_CANCELLED = "cancelled"
+
+# The schema the removed RequestStore created.
+_RETIRED_REQUEST_SCHEMA = f"""
+CREATE TABLE {RETIRED_REQUEST_TABLE} (
+    media_type    TEXT    NOT NULL,
+    tmdb_id       INTEGER NOT NULL,
+    title         TEXT    NOT NULL,
+    year          INTEGER,
+    status        TEXT    NOT NULL,
+    users         TEXT    NOT NULL,
+    last_tried_at TEXT,
+    created_at    TEXT    NOT NULL,
+    updated_at    TEXT    NOT NULL,
+    PRIMARY KEY (media_type, tmdb_id)
+);
+"""
+
 
 def _request(title: str = "Dune", **overrides) -> WatchlistAddRequest:
     fields = {"title": title, "year": "2021", "poster_path": "/dune.jpg", "overview": "Sand."}
@@ -384,22 +408,68 @@ class TestSchema:
         assert len(watchlist.list()) == 1
         assert {"pipeline_job", WATCHLIST_TABLE, "follow_submission"} <= _tables(db_path)
 
-    def test_retired_request_table_is_dropped_and_watchlist_rows_kept(self, tmp_path: Path):
-        db_path = str(tmp_path / "orchestrator.db")
-        WatchlistStore(db_path=db_path).add(MediaType.MOVIE, DUNE_ID, _request())
+
+class TestRetiredRequests:
+    """The jellyfin_request table is dropped at startup; an open request that
+    filed nothing yet carries over as a saved watchlist entry."""
+
+    def _seed(self, db_path: str, *rows: tuple[str, int, str, int | None, str]) -> None:
         with sqlite3.connect(db_path) as conn:
-            conn.execute(f"CREATE TABLE {RETIRED_REQUEST_TABLE} (tmdb_id INTEGER NOT NULL)")
-            conn.execute(f"INSERT INTO {RETIRED_REQUEST_TABLE} (tmdb_id) VALUES (?)", (DUNE_ID,))
+            conn.executescript(_RETIRED_REQUEST_SCHEMA)
+            conn.executemany(
+                f"INSERT INTO {RETIRED_REQUEST_TABLE} "
+                "(media_type, tmdb_id, title, year, status, users, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, '[]', ?, ?)",
+                [(*row, LEGACY_ADDED_AT, LEGACY_ADDED_AT) for row in rows],
+            )
+
+    def test_requested_movie_and_not_found_show_become_saved_entries(self, tmp_path: Path):
+        db_path = str(tmp_path / "orchestrator.db")
+        self._seed(
+            db_path,
+            ("movie", HEAT_ID, "Heat", HEAT_YEAR, REQUEST_STATUS_REQUESTED),
+            ("show", SHOW_ID, "Show", None, REQUEST_STATUS_NOT_FOUND),
+        )
 
         watchlist = WatchlistStore(db_path=db_path)
 
         assert RETIRED_REQUEST_TABLE not in _tables(db_path)
-        assert [item.tmdb_id for item in watchlist.list()] == [DUNE_ID]
+        movie = watchlist.get(MediaType.MOVIE, HEAT_ID)
+        show = watchlist.get(MediaType.SHOW, SHOW_ID)
+        assert movie is not None and (movie.title, movie.year) == ("Heat", str(HEAT_YEAR))
+        assert movie.kind is WatchlistKind.SAVED
+        assert show is not None and show.kind is WatchlistKind.SAVED and show.year is None
 
-    def test_startup_without_the_retired_request_table_is_a_noop(self, tmp_path: Path):
+    @pytest.mark.parametrize(
+        "status", [REQUEST_STATUS_SUBMITTED, REQUEST_STATUS_CLOSED, REQUEST_STATUS_CANCELLED]
+    )
+    def test_a_request_that_filed_something_or_ended_adds_nothing(
+        self, tmp_path: Path, status: str
+    ):
         db_path = str(tmp_path / "orchestrator.db")
-        WatchlistStore(db_path=db_path)
-        WatchlistStore(db_path=db_path)
+        self._seed(db_path, ("movie", HEAT_ID, "Heat", HEAT_YEAR, status))
+
+        watchlist = WatchlistStore(db_path=db_path)
+
+        assert watchlist.list() == []
+        assert RETIRED_REQUEST_TABLE not in _tables(db_path)
+
+    def test_an_existing_watchlist_entry_is_untouched(self, tmp_path: Path):
+        db_path = str(tmp_path / "orchestrator.db")
+        before = WatchlistStore(db_path=db_path).add(MediaType.MOVIE, DUNE_ID, _request())
+        self._seed(db_path, ("movie", DUNE_ID, "Dune Renamed", 1984, REQUEST_STATUS_REQUESTED))
+
+        watchlist = WatchlistStore(db_path=db_path)
+
+        assert watchlist.list() == [before]
+
+    def test_no_table_is_a_noop(self, tmp_path: Path):
+        db_path = str(tmp_path / "orchestrator.db")
+        WatchlistStore(db_path=db_path).add(MediaType.MOVIE, DUNE_ID, _request())
+
+        watchlist = WatchlistStore(db_path=db_path)
+
+        assert [item.tmdb_id for item in watchlist.list()] == [DUNE_ID]
         assert RETIRED_REQUEST_TABLE not in _tables(db_path)
 
 

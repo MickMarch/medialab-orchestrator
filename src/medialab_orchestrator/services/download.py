@@ -90,7 +90,7 @@ async def submit_pick(
     episode: int | None = None,
 ) -> PipelineJob:
     """Submit an automatic pick (the downloader's bare torrent result) as an
-    ordinary job: the follow poll and Jellyfin requests both go through here."""
+    ordinary job, as the follow poll does."""
     payload = DownloadRequest(
         source_url=str(result[_PICK_URL_KEY]),
         media_type=media_type,
